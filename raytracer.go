@@ -41,6 +41,10 @@ func (v *Vec3) Dot(other *Vec3) float64 {
 	return v.X*other.X + v.Y*other.Y + v.Z*other.Z
 }
 
+func (v *Vec3) CosineSimilarity(other *Vec3) float64 {
+	return v.Dot(other) / (v.Length() * other.Length())
+}
+
 func (v *Vec3) Lerp(other Vec3, t float64) *Vec3 {
 	return &Vec3{
 		X: v.X + (other.X-v.X)*t,
@@ -234,7 +238,7 @@ type RenderOptions struct {
 	BgColorStart, BgColorEnd Vec3
 }
 
-func Render(opts *RenderOptions) *image.RGBA {
+func Render(opts *RenderOptions) image.Image {
 	img := image.NewRGBA(image.Rect(0, 0, opts.WidthPx, opts.HeightPx))
 
 	viewportWidth := 4.0

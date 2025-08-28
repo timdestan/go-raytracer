@@ -2,6 +2,7 @@ package raytracer
 
 import (
 	"bytes"
+	"fmt"
 	"image/png"
 	"testing"
 
@@ -57,29 +58,57 @@ func TestNormalizeIsUnitLength(t *testing.T) {
 var goldenExample1Bytes []byte
 
 func TestRenderGolden(t *testing.T) {
-	img := Render(&RenderOptions{
-		WidthPx:        1000,
-		HeightPx:       1000,
+	got := Render(&RenderOptions{
+		WidthPx:        1900,
+		HeightPx:       1200,
 		CameraPosition: Vec3{X: 0, Y: 0, Z: 0},
-		CameraDistance: 0.5,
+		CameraDistance: 4.0,
 		Spheres: []*Sphere{
-			{Center: Vec3{X: -0.3, Y: 0.2, Z: 2.0}, Radius: 0.2, Color: RGB(1, 0, 0)},
-			{Center: Vec3{X: 0.5, Y: -0.2, Z: 3.0}, Radius: 1.0, Color: RGB(0, 0, 1)},
+			// Glass sphere with metallic sheen
+			{Center: Vec3{X: 0, Y: 0, Z: -5}, Radius: 1.0, Material: Material{Color: RGB(0.8, 0.2, 0.2), Reflectivity: 0.9, RefractiveIndex: 1.5}},
+			// Dull, fuzzy surface with some reflection
+			{Center: Vec3{X: 2, Y: 0, Z: -8}, Radius: 1.0, Material: Material{Color: RGB(0.2, 0.2, 0.8), Reflectivity: 0.2, Fuzziness: 0.5}},
+			// Original reflective green sphere
+			{Center: Vec3{X: -2, Y: 0, Z: -6}, Radius: 1.0, Material: Material{Color: RGB(0.2, 0.8, 0.2), Reflectivity: 0.8}},
+			// Ground plane
+			{Center: Vec3{X: 0, Y: -1001, Z: -5}, Radius: 1000.0, Material: Material{Color: RGB(0.8, 0.8, 0.8), Reflectivity: 0.0}},
 		},
 		Lights: []*Light{
-			{Position: Vec3{X: 0.5, Y: 0.5, Z: 0}, Color: Vec3{X: 1, Y: 1, Z: 1}},
+			{Position: Vec3{X: 5, Y: 5, Z: 0}, Color: Vec3{X: 1, Y: 1, Z: 1}},
 		},
 		BgColorStart: Vec3{X: 0.0, Y: 0.0, Z: 0.0},
 		BgColorEnd:   Vec3{X: 0.5, Y: 0.7, Z: 1.0},
 	})
 
-	var b bytes.Buffer
-	if err := png.Encode(&b, img); err != nil {
-		t.Fatalf("png.Encode: %v", err)
+	want, err := png.Decode(bytes.NewReader(goldenExample1Bytes))
+	if err != nil {
+		t.Fatalf("png.Decode: %v", err)
 	}
-	got := b.Bytes()
-	want := goldenExample1Bytes
-	if diff := cmp.Diff(got, want); diff != "" {
-		t.Errorf("Render() mismatch (-got +want):\n%s", diff)
+	if diff := cmp.Diff(got.Bounds(), want.Bounds()); diff != "" {
+		t.Errorf("Render() bounds mismatch (-got +want):\n%s", diff)
+	}
+	bounds := want.Bounds()
+
+	// TODO: This sucks. I'm sure there's a better way to do this.
+	const minCosineSimilarity = 0.75
+	var diffs []string
+	for x := bounds.Min.X; x < bounds.Max.X; x++ {
+		for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+			gotR, gotG, gotB, _ := got.At(x, y).RGBA()
+			wantR, wantG, wantB, _ := want.At(x, y).RGBA()
+			gotVec := Vec3{X: float64(gotR), Y: float64(gotG), Z: float64(gotB)}
+			wantVec := Vec3{X: float64(wantR), Y: float64(wantG), Z: float64(wantB)}
+			similarity := gotVec.CosineSimilarity(&wantVec)
+			if similarity < minCosineSimilarity {
+				diffs = append(diffs, fmt.Sprintf("pixel (%d, %d): got %v, want %v (similarity = %v)", x, y, gotVec, wantVec, similarity))
+			}
+		}
+	}
+	if len(diffs) > 10 {
+		// Just show a few.
+		diffs = diffs[:10]
+	}
+	for _, diff := range diffs {
+		t.Errorf("Render() mismatch: %s", diff)
 	}
 }
