@@ -45,7 +45,7 @@ func (v *Vec3) CosineSimilarity(other *Vec3) float64 {
 	return v.Dot(other) / (v.Length() * other.Length())
 }
 
-func (v *Vec3) Lerp(other Vec3, t float64) *Vec3 {
+func (v *Vec3) Lerp(other *Vec3, t float64) *Vec3 {
 	return &Vec3{
 		X: v.X + (other.X-v.X)*t,
 		Y: v.Y + (other.Y-v.Y)*t,
@@ -70,13 +70,35 @@ func (v *Vec3) Normalize() *Vec3 {
 	}
 }
 
+func (v *Vec3) Neg() *Vec3 {
+	return &Vec3{
+		X: -v.X,
+		Y: -v.Y,
+		Z: -v.Z,
+	}
+}
+
 func (v *Vec3) Length() float64 {
 	return math.Sqrt(v.X*v.X + v.Y*v.Y + v.Z*v.Z)
 }
 
+func (v *Vec3) IsZero() bool {
+	return v.X == 0.0 && v.Y == 0.0 && v.Z == 0.0
+}
+
+// RGBA implements the image.Color interface
 func (v *Vec3) RGBA() (r, g, b, a uint32) {
 	const max = 0xffff
 	return uint32(v.X * max), uint32(v.Y * max), uint32(v.Z * max), max
+}
+
+// Clamp clamps the X, Y, and Z values between 0 and 1.
+func (c *Vec3) Clamp() *Vec3 {
+	return &Vec3{
+		X: clamp(0, 1, c.X),
+		Y: clamp(0, 1, c.Y),
+		Z: clamp(0, 1, c.Z),
+	}
 }
 
 type Ray struct {
@@ -92,6 +114,7 @@ type Material struct {
 	Color           Vec3
 	Reflectivity    float64 // 0 for diffuse, 1 for perfect mirror reflection
 	Fuzziness       float64 // For fuzzy reflections (0 = no fuzz, 1 = max fuzz)
+	Transparency    float64 // 0.0 (opaque) to 1.0 (fully transparent)
 	RefractiveIndex float64 // For transparent materials (1.0 = air, 1.5 = glass)
 }
 
@@ -137,6 +160,68 @@ func intersectSphere(sphere *Sphere, ray *Ray) (float64, bool) {
 	return 0.0, false
 }
 
+// refract computes the direction of a refracted ray.
+// `incident` is the incident vector (the direction of the incoming ray).
+// `normal` is the normal vector of the surface at the hit point.
+// `n1` is the refractive index of the medium the ray is leaving.
+// `n2` is the refractive index of the medium the ray is entering.
+// The function returns the refracted direction or nil if no refraction occurs.
+func refract(incident, normal *Vec3, n1, n2 float64) *Vec3 {
+	ratio := n1 / n2
+	cosI := -normal.Dot(incident)
+	sinT2 := ratio * ratio * (1.0 - cosI*cosI)
+
+	// Check for total internal reflection
+	if sinT2 > 1.0 {
+		return nil
+	}
+
+	cosT := math.Sqrt(1.0 - sinT2)
+	return incident.Scale(ratio).Add(normal.Scale(ratio*cosI - cosT))
+}
+
+// fresnel computes the reflection coefficient (Kr) using Schlick's approximation.
+// normal: surface normal (unit vector)
+// incident: incoming ray direction (unit vector, pointing INTO the surface)
+// ior: index of refraction of the material
+func fresnel(normal, incident *Vec3, ior float64) float64 {
+	// cosi := clamp(-1, 1, incident.Dot(normal))
+	cosi := incident.CosineSimilarity(normal)
+	etai, etat := 1.0, ior // assume ray is coming from air (n=1)
+	n := normal
+
+	if cosi > 0 { // we are inside the object, swap
+		etai, etat = etat, etai
+		n = n.Neg() // flip normal
+	}
+
+	// Compute R0
+	r0 := (etai - etat) / (etai + etat)
+	r0 = r0 * r0
+
+	cost := math.Abs(cosi)
+	return r0 + (1-r0)*math.Pow(1-cost, 5) // Schlick's approximation
+}
+
+// clamp limits x between min and max
+func clamp(min, max, x float64) float64 {
+	if x < min {
+		return min
+	}
+	if x > max {
+		return max
+	}
+	return x
+}
+
+func applyBeersLaw(color *Vec3, absorptionColor *Vec3, distance float64) *Vec3 {
+	return &Vec3{
+		X: color.X * math.Exp(-absorptionColor.X*distance),
+		Y: color.Y * math.Exp(-absorptionColor.Y*distance),
+		Z: color.Z * math.Exp(-absorptionColor.Z*distance),
+	}
+}
+
 // traceRay returns the color of the closest sphere hit by the ray, or nil
 // if no sphere is hit.
 func traceRay(opts *RenderOptions, ray *Ray, depth int) *Vec3 {
@@ -158,9 +243,9 @@ func traceRay(opts *RenderOptions, ray *Ray, depth int) *Vec3 {
 		}
 	}
 	if hitSphereIndex == -1 {
-		// Calculate background color.
+		// Calculate background color (linear gradient).
 		t := 0.5 * (ray.Direction.Y + 1.0)
-		return opts.BgColorStart.Lerp(opts.BgColorEnd, t)
+		return opts.BgColorStart.Lerp(&opts.BgColorEnd, t)
 	}
 	hitSphere := opts.Spheres[hitSphereIndex]
 	hitPoint := ray.Origin.Add(ray.Direction.Scale(minT))
@@ -194,25 +279,56 @@ func traceRay(opts *RenderOptions, ray *Ray, depth int) *Vec3 {
 	// Calculate diffuse intensity
 	diffuseIntensity := math.Max(0, normal.Dot(lightDirection))
 	ambientColor := hitSphere.Material.Color.Scale(0.1)
-
-	shadedColor := ambientColor.Add(hitSphere.Material.Color.Scale(diffuseIntensity).Scale(light.Color.X))
+	surfaceColor := ambientColor.Add(hitSphere.Material.Color.Scale(diffuseIntensity).Scale(light.Color.X))
 
 	if inShadow {
-		shadedColor = ambientColor
+		surfaceColor = ambientColor
+	}
+
+	mat := &hitSphere.Material
+	if mat.Reflectivity == 0 && mat.Transparency == 0 {
+		return surfaceColor
 	}
 
 	// Handle reflection and transparency based on material properties
-	if hitSphere.Material.Reflectivity > 0 {
+	reflectedColor := &Vec3{}
+	if mat.Reflectivity > 0 {
 		// For fuzzy reflections, add a random component to the reflection direction.
-		fuzz := hitSphere.Material.Fuzziness
+		fuzz := mat.Fuzziness
 		reflectedDir := ray.Direction.Sub(normal.Scale(2.0 * ray.Direction.Dot(normal)))
 		// "random" vector
 		randomVector := Vec3{math.Cos(fuzz) * math.Cos(fuzz), math.Sin(fuzz) * math.Sin(fuzz), 0}
-		reflectionRay := Ray{Origin: hitPoint.Add(normal.Scale(0.001)), Direction: reflectedDir.Add(randomVector.Scale(fuzz)).Normalize()}
-		reflectedColor := traceRay(opts, &reflectionRay, depth-1)
-		return reflectedColor.Scale(hitSphere.Material.Reflectivity).Add(shadedColor.Scale(1.0 - hitSphere.Material.Reflectivity))
+		reflectionRay := Ray{Origin: hitPoint.Add(normal.Scale(1e-4)), Direction: reflectedDir.Add(randomVector.Scale(fuzz)).Normalize()}
+		reflectedColor = traceRay(opts, &reflectionRay, depth-1)
 	}
-	return shadedColor
+
+	refractedColor := &Vec3{}
+	if mat.Transparency > 0 {
+		// This assumes the outer medium is air.
+		n1 := 1.0
+		n2 := mat.RefractiveIndex
+
+		// If the dot product of the ray direction and the normal is positive,
+		// then the ray is inside the object and trying to exit.
+		// In this case, must swap the refractive indices.
+		if ray.Direction.Dot(normal) > 0.0 {
+			n1, n2 = n2, n1
+			// We also need to invert the normal
+			normal = normal.Scale(-1.0)
+		}
+
+		refractedDir := refract(ray.Direction, normal, n1, n2)
+
+		if refractedDir != nil {
+			// Create the refracted ray. We offset the origin slightly to avoid self-intersection.
+			refractedRay := Ray{Origin: hitPoint.Sub(normal.Scale(1e-4)), Direction: refractedDir}
+
+			// Recursively trace the refracted ray
+			refractedColor = traceRay(opts, &refractedRay, depth-1)
+		}
+	}
+	kr := fresnel(normal, ray.Direction, mat.RefractiveIndex)
+	return surfaceColor.Scale(1.0 - mat.Transparency).Add(reflectedColor.Scale(kr).Add(refractedColor.Scale(1.0 - kr))).Clamp()
 }
 
 func square(x float64) float64 {
@@ -221,10 +337,6 @@ func square(x float64) float64 {
 
 type RenderOptions struct {
 	WidthPx, HeightPx int
-
-	// CameraPosition is the position behind the screen of the point
-	// from which all the rays originate. Defaults to (0,0,0).
-	CameraPosition Vec3
 
 	// Distance from camera to screen. The viewport plane is at
 	// Z=CameraDistance with both Y and Z going from -0.5 to 0.5.
@@ -251,8 +363,10 @@ func Render(opts *RenderOptions) image.Image {
 			const numSamples = 4
 			for range numSamples {
 				// Map pixel coordinates to world coordinates.
-				u := (float64(x)+rand.Float64())/float64(opts.WidthPx-1)*viewportWidth - viewportWidth/2.0
-				v := (float64(y)+rand.Float64())/float64(opts.HeightPx-1)*viewportHeight - viewportHeight/2.0
+				du := rand.Float64() - 0.5
+				dv := rand.Float64() - 0.5
+				u := (float64(x)+du)/float64(opts.WidthPx-1)*viewportWidth - viewportWidth/2.0
+				v := (float64(y)+dv)/float64(opts.HeightPx-1)*viewportHeight - viewportHeight/2.0
 
 				origin := &Vec3{
 					X: u,
@@ -262,7 +376,7 @@ func Render(opts *RenderOptions) image.Image {
 				// The ray vector goes from the origin to the screen pixel
 				ray := Ray{
 					Origin:    origin,
-					Direction: origin.Sub(&opts.CameraPosition).Normalize(),
+					Direction: origin.Normalize(),
 				}
 
 				const recursionLimit = 3

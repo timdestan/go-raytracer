@@ -1,4 +1,4 @@
 raytracer
 
 # Should probably put this in an output dir or something.
-example.png
+example*.png

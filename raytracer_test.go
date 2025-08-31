@@ -58,27 +58,7 @@ func TestNormalizeIsUnitLength(t *testing.T) {
 var goldenExample1Bytes []byte
 
 func TestRenderGolden(t *testing.T) {
-	got := Render(&RenderOptions{
-		WidthPx:        1900,
-		HeightPx:       1200,
-		CameraPosition: Vec3{X: 0, Y: 0, Z: 0},
-		CameraDistance: 4.0,
-		Spheres: []*Sphere{
-			// Glass sphere with metallic sheen
-			{Center: Vec3{X: 0, Y: 0, Z: -5}, Radius: 1.0, Material: Material{Color: RGB(0.8, 0.2, 0.2), Reflectivity: 0.9, RefractiveIndex: 1.5}},
-			// Dull, fuzzy surface with some reflection
-			{Center: Vec3{X: 2, Y: 0, Z: -8}, Radius: 1.0, Material: Material{Color: RGB(0.2, 0.2, 0.8), Reflectivity: 0.2, Fuzziness: 0.5}},
-			// Original reflective green sphere
-			{Center: Vec3{X: -2, Y: 0, Z: -6}, Radius: 1.0, Material: Material{Color: RGB(0.2, 0.8, 0.2), Reflectivity: 0.8}},
-			// Ground plane
-			{Center: Vec3{X: 0, Y: -1001, Z: -5}, Radius: 1000.0, Material: Material{Color: RGB(0.8, 0.8, 0.8), Reflectivity: 0.0}},
-		},
-		Lights: []*Light{
-			{Position: Vec3{X: 5, Y: 5, Z: 0}, Color: Vec3{X: 1, Y: 1, Z: 1}},
-		},
-		BgColorStart: Vec3{X: 0.0, Y: 0.0, Z: 0.0},
-		BgColorEnd:   Vec3{X: 0.5, Y: 0.7, Z: 1.0},
-	})
+	got := Render(ExampleScene1Opts(1900, 1200))
 
 	want, err := png.Decode(bytes.NewReader(goldenExample1Bytes))
 	if err != nil {
@@ -104,11 +84,16 @@ func TestRenderGolden(t *testing.T) {
 			}
 		}
 	}
+	totalDiffs := len(diffs)
 	if len(diffs) > 10 {
 		// Just show a few.
 		diffs = diffs[:10]
 	}
+	if len(diffs) == 0 {
+		return
+	}
+	t.Errorf("Render() mismatch: %d / %d diffs", totalDiffs, (bounds.Max.X-bounds.Min.X)*(bounds.Max.Y-bounds.Min.Y))
 	for _, diff := range diffs {
-		t.Errorf("Render() mismatch: %s", diff)
+		t.Errorf("  Diff: %s", diff)
 	}
 }
