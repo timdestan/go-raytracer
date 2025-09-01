@@ -58,7 +58,7 @@ func TestNormalizeIsUnitLength(t *testing.T) {
 var goldenExample1Bytes []byte
 
 func TestRenderGolden(t *testing.T) {
-	got := Render(ExampleScene1Opts(1900, 1200))
+	got := Render(ExampleScene1(1900, 1200))
 
 	want, err := png.Decode(bytes.NewReader(goldenExample1Bytes))
 	if err != nil {
@@ -84,13 +84,13 @@ func TestRenderGolden(t *testing.T) {
 			}
 		}
 	}
+	if len(diffs) == 0 {
+		return
+	}
 	totalDiffs := len(diffs)
 	if len(diffs) > 10 {
 		// Just show a few.
 		diffs = diffs[:10]
-	}
-	if len(diffs) == 0 {
-		return
 	}
 	t.Errorf("Render() mismatch: %d / %d diffs", totalDiffs, (bounds.Max.X-bounds.Min.X)*(bounds.Max.Y-bounds.Min.Y))
 	for _, diff := range diffs {

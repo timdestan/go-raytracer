@@ -35,7 +35,7 @@ func main() {
 		log.Fatal("--filename is required")
 	}
 
-	img := rt.Render(rt.ExampleScene1Opts(WIDTH_PX, HEIGHT_PX))
+	img := rt.Render(rt.ExampleScene1(WIDTH_PX, HEIGHT_PX))
 	err := writeImage(img, *filename)
 	if err != nil {
 		log.Fatal(err)

@@ -37,6 +37,15 @@ func (v *Vec3) Sub(other *Vec3) *Vec3 {
 	}
 }
 
+// Mul multiples two vectors pointwise.
+func (v *Vec3) Mul(other *Vec3) *Vec3 {
+	return &Vec3{
+		X: v.X * other.X,
+		Y: v.Y * other.Y,
+		Z: v.Z * other.Z,
+	}
+}
+
 func (v *Vec3) Dot(other *Vec3) float64 {
 	return v.X*other.X + v.Y*other.Y + v.Z*other.Z
 }
@@ -101,6 +110,11 @@ func (c *Vec3) Clamp() *Vec3 {
 	}
 }
 
+// Reflect reflects this vector around the given axis vector.
+func (c *Vec3) Reflect(axis *Vec3) *Vec3 {
+	return axis.Scale(2 * axis.Dot(c)).Sub(c)
+}
+
 type Ray struct {
 	Origin    *Vec3
 	Direction *Vec3
@@ -116,6 +130,7 @@ type Material struct {
 	Fuzziness       float64 // For fuzzy reflections (0 = no fuzz, 1 = max fuzz)
 	Transparency    float64 // 0.0 (opaque) to 1.0 (fully transparent)
 	RefractiveIndex float64 // For transparent materials (1.0 = air, 1.5 = glass)
+	AbsorptionColor Vec3    // Beer’s law tint (optional, only for transmissive)
 }
 
 type Sphere struct {
@@ -153,11 +168,71 @@ func intersectSphere(sphere *Sphere, ray *Ray) (float64, bool) {
 	if t0 > 0.0 {
 		return t0, true
 	}
-	t1 := t_ca + t_hc
-	if t1 > 0.0 {
-		return t1, true
-	}
+	// TODO: Should we include these far hits?
+	// t1 := t_ca + t_hc
+	// if t1 > 0.0 {
+	// 	return t1, true
+	// }
 	return 0.0, false
+}
+
+func computeLighting(hit *Hit, scene *Scene, ray *Ray) *Vec3 {
+	V := ray.Direction.Neg() // view vector = opposite of ray
+
+	const ambientTerm = 0.1 // Constant ambient term
+	mat := &hit.Sphere.Material
+	result := mat.Color.Scale(ambientTerm)
+
+	for _, light := range scene.Lights {
+		lightToHit := light.Position.Sub(hit.Point)
+		distToLight := lightToHit.Length()
+		lightDir := lightToHit.Normalize()
+
+		if inShadow(hit, scene, lightDir, distToLight, ray) {
+			continue
+		}
+
+		// Diffuse term
+		diff := math.Max(0, hit.Normal.Dot(lightDir))
+		diffuse := mat.Color.Mul(&light.Color).Scale(diff)
+
+		// Specular term
+		R := lightDir.Neg().Reflect(hit.Normal) // reflect light direction about normal
+		spec := math.Max(0, R.Dot(V))
+		specular := light.Color.Scale(mat.Reflectivity * math.Pow(spec, 50)) // 50 = fixed shininess
+
+		result = result.Add(diffuse).Add(specular)
+	}
+
+	return result.Clamp()
+}
+
+// inShadow checks if the point hit by the ray is in the shadow of the light
+// source, by tracing a ray from the hit point to the light and checking if
+// there are any intersections with other spheres.
+//
+// The ray is offset by a small amount in the direction of the normal so that
+// the intersection with the current sphere is not counted.
+//
+// lightDir is assumed to be a normal vector.
+func inShadow(hit *Hit, scene *Scene, lightDir *Vec3, distToLight float64, ray *Ray) bool {
+	const epsilon = 1e-4
+	shadowOrigin := hit.Point.Add(hit.Normal.Scale(epsilon))
+	shadowRay := &Ray{Origin: shadowOrigin, Direction: lightDir}
+	for _, s := range scene.Spheres {
+		if s == hit.Sphere {
+			continue
+		}
+		t, ok := intersectSphere(s, shadowRay)
+		if !ok {
+			continue
+		}
+		// Check if the intersection is between the hit point and the light.
+		if t*ray.Direction.Length() < distToLight {
+			return true
+		}
+	}
+	return false
 }
 
 // refract computes the direction of a refracted ray.
@@ -222,70 +297,49 @@ func applyBeersLaw(color *Vec3, absorptionColor *Vec3, distance float64) *Vec3 {
 	}
 }
 
+type Hit struct {
+	Sphere *Sphere
+	T      float64
+	Point  *Vec3
+	Normal *Vec3
+}
+
 // traceRay returns the color of the closest sphere hit by the ray, or nil
 // if no sphere is hit.
-func traceRay(opts *RenderOptions, ray *Ray, depth int) *Vec3 {
+func traceRay(scene *Scene, ray *Ray, depth int) *Vec3 {
 	if depth <= 0 {
 		// Recursion limit
 		return &Vec3{}
 	}
 
 	minT := math.MaxFloat64
-	var hitSphereIndex = -1
-	for i, sphere := range opts.Spheres {
+	var hitSphere *Sphere
+	for _, sphere := range scene.Spheres {
 		t, ok := intersectSphere(sphere, ray)
 		if !ok {
 			continue
 		}
 		if t < minT {
 			minT = t
-			hitSphereIndex = i
+			hitSphere = sphere
 		}
 	}
-	if hitSphereIndex == -1 {
+	if hitSphere == nil {
 		// Calculate background color (linear gradient).
 		t := 0.5 * (ray.Direction.Y + 1.0)
-		return opts.BgColorStart.Lerp(&opts.BgColorEnd, t)
+		return scene.BgColorStart.Lerp(&scene.BgColorEnd, t)
 	}
-	hitSphere := opts.Spheres[hitSphereIndex]
-	hitPoint := ray.Origin.Add(ray.Direction.Scale(minT))
-	normal := hitPoint.Sub(&hitSphere.Center).Normalize()
-
-	// TODO: Handle multiple lights.
-	if len(opts.Lights) != 1 {
-		panic("expected exactly 1 light")
+	hit := &Hit{
+		Sphere: hitSphere,
+		T:      minT,
+		Point:  ray.Origin.Add(ray.Direction.Scale(minT)),
+		Normal: nil,
 	}
-	light := opts.Lights[0]
-	lightDirection := light.Position.Sub(hitPoint).Normalize()
+	hit.Normal = hit.Point.Sub(&hit.Sphere.Center).Normalize()
 
-	// Check for shadows.
-	shadowRay := &Ray{Origin: hitPoint, Direction: lightDirection}
-	inShadow := false
-	for i, s := range opts.Spheres {
-		if i == hitSphereIndex {
-			continue
-		}
-		t, ok := intersectSphere(s, shadowRay)
-		if !ok {
-			continue
-		}
-		// Check if the intersection is between the hit point and the light.
-		if t*lightDirection.Length() < light.Position.Sub(hitPoint).Length() {
-			inShadow = true
-			break
-		}
-	}
+	surfaceColor := computeLighting(hit, scene, ray)
 
-	// Calculate diffuse intensity
-	diffuseIntensity := math.Max(0, normal.Dot(lightDirection))
-	ambientColor := hitSphere.Material.Color.Scale(0.1)
-	surfaceColor := ambientColor.Add(hitSphere.Material.Color.Scale(diffuseIntensity).Scale(light.Color.X))
-
-	if inShadow {
-		surfaceColor = ambientColor
-	}
-
-	mat := &hitSphere.Material
+	mat := &hit.Sphere.Material
 	if mat.Reflectivity == 0 && mat.Transparency == 0 {
 		return surfaceColor
 	}
@@ -295,11 +349,11 @@ func traceRay(opts *RenderOptions, ray *Ray, depth int) *Vec3 {
 	if mat.Reflectivity > 0 {
 		// For fuzzy reflections, add a random component to the reflection direction.
 		fuzz := mat.Fuzziness
-		reflectedDir := ray.Direction.Sub(normal.Scale(2.0 * ray.Direction.Dot(normal)))
+		reflectedDir := ray.Direction.Sub(hit.Normal.Scale(2.0 * ray.Direction.Dot(hit.Normal)))
 		// "random" vector
 		randomVector := Vec3{math.Cos(fuzz) * math.Cos(fuzz), math.Sin(fuzz) * math.Sin(fuzz), 0}
-		reflectionRay := Ray{Origin: hitPoint.Add(normal.Scale(1e-4)), Direction: reflectedDir.Add(randomVector.Scale(fuzz)).Normalize()}
-		reflectedColor = traceRay(opts, &reflectionRay, depth-1)
+		reflectionRay := Ray{Origin: hit.Point.Add(hit.Normal.Scale(1e-4)), Direction: reflectedDir.Add(randomVector.Scale(fuzz)).Normalize()}
+		reflectedColor = traceRay(scene, &reflectionRay, depth-1)
 	}
 
 	refractedColor := &Vec3{}
@@ -311,6 +365,7 @@ func traceRay(opts *RenderOptions, ray *Ray, depth int) *Vec3 {
 		// If the dot product of the ray direction and the normal is positive,
 		// then the ray is inside the object and trying to exit.
 		// In this case, must swap the refractive indices.
+		normal := hit.Normal
 		if ray.Direction.Dot(normal) > 0.0 {
 			n1, n2 = n2, n1
 			// We also need to invert the normal
@@ -321,13 +376,13 @@ func traceRay(opts *RenderOptions, ray *Ray, depth int) *Vec3 {
 
 		if refractedDir != nil {
 			// Create the refracted ray. We offset the origin slightly to avoid self-intersection.
-			refractedRay := Ray{Origin: hitPoint.Sub(normal.Scale(1e-4)), Direction: refractedDir}
+			refractedRay := Ray{Origin: hit.Point.Sub(normal.Scale(1e-4)), Direction: refractedDir}
 
 			// Recursively trace the refracted ray
-			refractedColor = traceRay(opts, &refractedRay, depth-1)
+			refractedColor = traceRay(scene, &refractedRay, depth-1)
 		}
 	}
-	kr := fresnel(normal, ray.Direction, mat.RefractiveIndex)
+	kr := fresnel(hit.Normal, ray.Direction, mat.RefractiveIndex)
 	return surfaceColor.Scale(1.0 - mat.Transparency).Add(reflectedColor.Scale(kr).Add(refractedColor.Scale(1.0 - kr))).Clamp()
 }
 
@@ -335,11 +390,11 @@ func square(x float64) float64 {
 	return x * x
 }
 
-type RenderOptions struct {
+type Scene struct {
 	WidthPx, HeightPx int
 
 	// Distance from camera to screen. The viewport plane is at
-	// Z=CameraDistance with both Y and Z going from -0.5 to 0.5.
+	// Z=-CameraDistance with both Y and Z going from -0.5 to 0.5.
 	CameraDistance float64
 
 	Spheres []*Sphere
@@ -350,14 +405,14 @@ type RenderOptions struct {
 	BgColorStart, BgColorEnd Vec3
 }
 
-func Render(opts *RenderOptions) image.Image {
-	img := image.NewRGBA(image.Rect(0, 0, opts.WidthPx, opts.HeightPx))
+func Render(scene *Scene) image.Image {
+	img := image.NewRGBA(image.Rect(0, 0, scene.WidthPx, scene.HeightPx))
 
 	viewportWidth := 4.0
-	viewportHeight := viewportWidth * (float64(opts.HeightPx) / float64(opts.WidthPx))
+	viewportHeight := viewportWidth * (float64(scene.HeightPx) / float64(scene.WidthPx))
 
-	for x := range opts.WidthPx {
-		for y := range opts.HeightPx {
+	for x := range scene.WidthPx {
+		for y := range scene.HeightPx {
 			// Subsample for antialiasing
 			totalColor := &Vec3{}
 			const numSamples = 4
@@ -365,13 +420,13 @@ func Render(opts *RenderOptions) image.Image {
 				// Map pixel coordinates to world coordinates.
 				du := rand.Float64() - 0.5
 				dv := rand.Float64() - 0.5
-				u := (float64(x)+du)/float64(opts.WidthPx-1)*viewportWidth - viewportWidth/2.0
-				v := (float64(y)+dv)/float64(opts.HeightPx-1)*viewportHeight - viewportHeight/2.0
+				u := (float64(x)+du)/float64(scene.WidthPx-1)*viewportWidth - viewportWidth/2.0
+				v := (float64(y)+dv)/float64(scene.HeightPx-1)*viewportHeight - viewportHeight/2.0
 
 				origin := &Vec3{
 					X: u,
 					Y: -v,
-					Z: -opts.CameraDistance,
+					Z: -scene.CameraDistance,
 				}
 				// The ray vector goes from the origin to the screen pixel
 				ray := Ray{
@@ -380,7 +435,7 @@ func Render(opts *RenderOptions) image.Image {
 				}
 
 				const recursionLimit = 3
-				color := traceRay(opts, &ray, recursionLimit)
+				color := traceRay(scene, &ray, recursionLimit)
 				totalColor = totalColor.Add(color)
 			}
 			img.Set(x, y, totalColor.Scale(1.0/float64(numSamples)))
