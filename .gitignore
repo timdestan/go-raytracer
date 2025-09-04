@@ -1,4 +1,9 @@
 raytracer
+raytracer.test
 
 # Should probably put this in an output dir or something.
 example*.png
+
+# profiler output
+*.prof
+profile*.svg

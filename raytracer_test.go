@@ -97,3 +97,13 @@ func TestRenderGolden(t *testing.T) {
 		t.Errorf("  Diff: %s", diff)
 	}
 }
+
+// Run benchmarks with:
+// go test -run ^$ -bench . -cpuprofile=/tmp/cpu.prof
+// go tool pprof -http=:8080 /tmp/cpu.prof
+
+func BenchmarkRender(b *testing.B) {
+	for b.Loop() {
+		Render(ExampleScene1(1900, 1200))
+	}
+}

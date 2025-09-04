@@ -29,6 +29,14 @@ func (v *Vec3) Add(other *Vec3) *Vec3 {
 	}
 }
 
+// AddI is an in-place version of Add
+func (v *Vec3) AddI(other *Vec3) *Vec3 {
+	v.X += other.X
+	v.Y += other.Y
+	v.Z += other.Z
+	return v
+}
+
 func (v *Vec3) Sub(other *Vec3) *Vec3 {
 	return &Vec3{
 		X: v.X - other.X,
@@ -54,12 +62,11 @@ func (v *Vec3) CosineSimilarity(other *Vec3) float64 {
 	return v.Dot(other) / (v.Length() * other.Length())
 }
 
-func (v *Vec3) Lerp(other *Vec3, t float64) *Vec3 {
-	return &Vec3{
-		X: v.X + (other.X-v.X)*t,
-		Y: v.Y + (other.Y-v.Y)*t,
-		Z: v.Z + (other.Z-v.Z)*t,
-	}
+func (v *Vec3) LerpI(other *Vec3, t float64) *Vec3 {
+	v.X += (other.X - v.X) * t
+	v.Y += (other.Y - v.Y) * t
+	v.Z += (other.Z - v.Z) * t
+	return v
 }
 
 func (v *Vec3) Scale(s float64) *Vec3 {
@@ -101,13 +108,12 @@ func (v *Vec3) RGBA() (r, g, b, a uint32) {
 	return uint32(v.X * max), uint32(v.Y * max), uint32(v.Z * max), max
 }
 
-// Clamp clamps the X, Y, and Z values between 0 and 1.
-func (c *Vec3) Clamp() *Vec3 {
-	return &Vec3{
-		X: clamp(0, 1, c.X),
-		Y: clamp(0, 1, c.Y),
-		Z: clamp(0, 1, c.Z),
-	}
+// ClampI clamps the X, Y, and Z values between 0 and 1, in place.
+func (c *Vec3) ClampI() *Vec3 {
+	c.X = clamp(0, 1, c.X)
+	c.Y = clamp(0, 1, c.Y)
+	c.Z = clamp(0, 1, c.Z)
+	return c
 }
 
 // Reflect reflects this vector around the given axis vector.
@@ -201,10 +207,10 @@ func computeLighting(hit *Hit, scene *Scene, ray *Ray) *Vec3 {
 		spec := math.Max(0, R.Dot(V))
 		specular := light.Color.Scale(mat.Reflectivity * math.Pow(spec, 50)) // 50 = fixed shininess
 
-		result = result.Add(diffuse).Add(specular)
+		result.AddI(diffuse).AddI(specular)
 	}
 
-	return result.Clamp()
+	return result
 }
 
 // inShadow checks if the point hit by the ray is in the shadow of the light
@@ -263,12 +269,6 @@ func fresnel(normal, incident *Vec3, ior float64) float64 {
 	// cosi := clamp(-1, 1, incident.Dot(normal))
 	cosi := incident.CosineSimilarity(normal)
 	etai, etat := 1.0, ior // assume ray is coming from air (n=1)
-	n := normal
-
-	if cosi > 0 { // we are inside the object, swap
-		etai, etat = etat, etai
-		n = n.Neg() // flip normal
-	}
 
 	// Compute R0
 	r0 := (etai - etat) / (etai + etat)
@@ -280,13 +280,7 @@ func fresnel(normal, incident *Vec3, ior float64) float64 {
 
 // clamp limits x between min and max
 func clamp(min, max, x float64) float64 {
-	if x < min {
-		return min
-	}
-	if x > max {
-		return max
-	}
-	return x
+	return math.Min(math.Max(x, min), max)
 }
 
 func applyBeersLaw(color *Vec3, absorptionColor *Vec3, distance float64) *Vec3 {
@@ -327,7 +321,7 @@ func traceRay(scene *Scene, ray *Ray, depth int) *Vec3 {
 	if hitSphere == nil {
 		// Calculate background color (linear gradient).
 		t := 0.5 * (ray.Direction.Y + 1.0)
-		return scene.BgColorStart.Lerp(&scene.BgColorEnd, t)
+		return scene.BgColorStart.LerpI(&scene.BgColorEnd, t)
 	}
 	hit := &Hit{
 		Sphere: hitSphere,
@@ -341,7 +335,7 @@ func traceRay(scene *Scene, ray *Ray, depth int) *Vec3 {
 
 	mat := &hit.Sphere.Material
 	if mat.Reflectivity == 0 && mat.Transparency == 0 {
-		return surfaceColor
+		return surfaceColor.ClampI()
 	}
 
 	// Handle reflection and transparency based on material properties
@@ -383,7 +377,7 @@ func traceRay(scene *Scene, ray *Ray, depth int) *Vec3 {
 		}
 	}
 	kr := fresnel(hit.Normal, ray.Direction, mat.RefractiveIndex)
-	return surfaceColor.Scale(1.0 - mat.Transparency).Add(reflectedColor.Scale(kr).Add(refractedColor.Scale(1.0 - kr))).Clamp()
+	return surfaceColor.Scale(1.0 - mat.Transparency).AddI(reflectedColor.Scale(kr).AddI(refractedColor.Scale(1.0 - kr))).ClampI()
 }
 
 func square(x float64) float64 {
@@ -436,7 +430,7 @@ func Render(scene *Scene) image.Image {
 
 				const recursionLimit = 3
 				color := traceRay(scene, &ray, recursionLimit)
-				totalColor = totalColor.Add(color)
+				totalColor.AddI(color)
 			}
 			img.Set(x, y, totalColor.Scale(1.0/float64(numSamples)))
 		}
