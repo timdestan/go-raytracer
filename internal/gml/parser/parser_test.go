@@ -24,9 +24,10 @@ func TestParseExamples(t *testing.T) {
 			name:  "sphere",
 			input: gml.TestdataSphere,
 			want: tokens(
-				function(binders("v", "u", "face"), tokens(
+				function(
+					binder("v"), binder("u"), binder("face"),
 					0.8, 0.2, sym("v"), sym("point"), 1.0, 0.2, 1.0,
-				)),
+				),
 				sym("sphere"),
 				binder("s"),
 				sym("s"),
@@ -67,11 +68,10 @@ func TestParseExamples(t *testing.T) {
 			name:  "cube",
 			input: gml.TestdataCube,
 			want: tokens(
-				function(binders("v", "u", "face"),
-					tokens(
-						1.0, 0.5, 0.5, sym("point"),
-						1.0, 0.0, 1.0,
-					),
+				function(
+					binder("v"), binder("u"), binder("face"),
+					1.0, 0.5, 0.5, sym("point"),
+					1.0, 0.0, 1.0,
 				),
 				sym("cube"),
 				0.0, -0.5, 4.0, sym("translate"),
@@ -85,41 +85,33 @@ func TestParseExamples(t *testing.T) {
 					array(sym("white"), sym("blue")),
 				),
 				binder("texture"),
-				function(binders("i"),
-					tokens(
-						sym("i"), 0.0, sym("lessf"),
-						function(binders(), tokens(sym("i"), sym("negf"), 0.5, sym("addf"))),
-						function(binders(), tokens(sym("i"))), sym("if"),
-					),
+				function(
+					binder("i"),
+					sym("i"), 0.0, sym("lessf"),
+					function(sym("i"), sym("negf"), 0.5, sym("addf")),
+					function(sym("i")), sym("if"),
 				),
 				binder("fabs"),
 				function(
-					binders(),
-					tokens(
-						sym("fabs"), sym("apply"), binder("v"),
-						sym("fabs"), sym("apply"), binder("u"),
-						binder("face"),
-						function(
-							binders(),
-							tokens(
-								sym("frac"), 0.5, sym("addf"), sym("floor"), binder("i"),
-								sym("i"),
-							),
-						),
-						binder("toIntCoord"),
-						sym("texture"), sym("u"), sym("toIntCoord"), sym("apply"), sym("get"),
-						sym("v"), sym("toIntCoord"), sym("apply"), sym("get"),
-						0.3, 0.9, 1.0,
+					sym("fabs"), sym("apply"), binder("v"),
+					sym("fabs"), sym("apply"), binder("u"),
+					binder("face"),
+					function(
+						sym("frac"), 0.5, sym("addf"), sym("floor"), binder("i"),
+						sym("i"),
 					),
+					binder("toIntCoord"),
+					sym("texture"), sym("u"), sym("toIntCoord"), sym("apply"), sym("get"),
+					sym("v"), sym("toIntCoord"), sym("apply"), sym("get"),
+					0.3, 0.9, 1.0,
 				),
 				sym("plane"),
 				0.0, -3.0, 0.0, sym("translate"),
 				binder("p"),
-				function(binders("v", "u", "face"),
-					tokens(
-						0.5, 0.5, 0.5, sym("point"),
-						0.3, 0.85, 1.0,
-					),
+				function(
+					binder("v"), binder("u"), binder("face"),
+					0.5, 0.5, 0.5, sym("point"),
+					0.3, 0.85, 1.0,
 				),
 				sym("plane"),
 				0.0, 0.0, 8.0, sym("translate"),
@@ -158,27 +150,19 @@ func TestParseExamples(t *testing.T) {
 // Helpers for building parse tree expectations
 
 func sym(name string) *Identifier {
-	return &Identifier{Value: name}
+	return &Identifier{Name: name}
 }
 
 func binder(name string) *Binder {
 	return &Binder{Name: name}
 }
 
-func binders(names ...string) []*Binder {
-	binders := make([]*Binder, len(names))
-	for i, name := range names {
-		binders[i] = binder(name)
-	}
-	return binders
-}
-
 func array(ts ...any) *Array {
 	return &Array{Elements: tokens(ts...)}
 }
 
-func function(binders []*Binder, body TokenList) *Function {
-	return &Function{Binders: binders, Body: body}
+func function(ts ...any) *Function {
+	return &Function{Body: tokens(ts...)}
 }
 
 func tokens(tokens ...any) TokenList {
@@ -195,8 +179,10 @@ func tokens(tokens ...any) TokenList {
 			l[i] = &FloatLiteral{Value: token}
 		case bool:
 			l[i] = &BoolLiteral{Value: token}
+		case TokenList:
+			panic(fmt.Sprintf("unexpected TokenList in tokens() (nested call?): %v", token))
 		default:
-			panic(fmt.Sprintf("unknown token (%s, type = %T)", token, token))
+			panic(fmt.Sprintf("unknown token arg in tokens(): %v", token))
 		}
 	}
 	return l

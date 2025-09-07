@@ -100,7 +100,7 @@ func (p *Parser) parseTokenGroup() (TokenGroup, error) {
 func (p *Parser) parseSingleToken() (TokenGroup, error) {
 	switch p.currToken().Type {
 	case TokenIdent:
-		return &Identifier{Value: p.readAndAdvanceToken().Literal}, nil
+		return &Identifier{Name: p.readAndAdvanceToken().Literal}, nil
 	case TokenNumber:
 		return p.parseNumberLiteral()
 	case TokenString:
@@ -162,16 +162,6 @@ func (p *Parser) parseFunction() (TokenGroup, error) {
 	if err := p.consume(TokenLCurly); err != nil {
 		return nil, err
 	}
-	// Parse binder list.
-	var binder []*Binder
-	for p.currToken().Type == TokenBinder {
-		b, err := p.parseBinder()
-		if err != nil {
-			return nil, err
-		}
-		binder = append(binder, b)
-	}
-	// Parse token list.
 	l, err := p.parseTokenList()
 	if err != nil {
 		return nil, err
@@ -179,5 +169,5 @@ func (p *Parser) parseFunction() (TokenGroup, error) {
 	if err := p.consume(TokenRCurly); err != nil {
 		return nil, err
 	}
-	return &Function{Binders: binder, Body: l}, nil
+	return &Function{Body: l}, nil
 }

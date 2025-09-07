@@ -1,5 +1,11 @@
 package parser
 
+import (
+	"fmt"
+	"strconv"
+	"strings"
+)
+
 type TokenGroupType int
 
 const (
@@ -20,7 +26,7 @@ type TokenGroup interface {
 }
 
 type Identifier struct {
-	Value string
+	Name string
 }
 
 func (i *Identifier) Type() TokenGroupType {
@@ -28,7 +34,7 @@ func (i *Identifier) Type() TokenGroupType {
 }
 
 type Array struct {
-	Elements []TokenGroup
+	Elements TokenList
 }
 
 func (a *Array) Type() TokenGroupType {
@@ -75,13 +81,48 @@ func (b *Binder) Type() TokenGroupType {
 	return TGBinder
 }
 
-// TODO: Binders should probably not be treated specially.
-
 type Function struct {
-	Binders []*Binder
-	Body    TokenList
+	Body TokenList
 }
 
 func (f *Function) Type() TokenGroupType {
 	return TGFunction
+}
+
+func TokenGroupDebugString(g TokenGroup) string {
+	switch g := g.(type) {
+	case *IntLiteral:
+		return strconv.FormatInt(g.Value, 10)
+	case *FloatLiteral:
+		str := strconv.FormatFloat(g.Value, 'g', -1, 64)
+		if strings.Contains(str, ".") || strings.ContainsAny(str, "eE") {
+			return str
+		}
+		// Show trailing .0 even for integers to make it obvious the result is
+		// a float.
+		return str + ".0"
+	case *BoolLiteral:
+		return strconv.FormatBool(g.Value)
+	case *StringLiteral:
+		return strconv.Quote(g.Value)
+	case *Identifier:
+		return g.Name
+	case *Binder:
+		return "/" + g.Name
+	case *Function:
+		return "{ " + g.Body.String() + " }"
+	case *Array:
+		return "[ " + g.Elements.String() + " ]"
+	default:
+		// All TokenGroup types should be defined in this file.
+		panic(fmt.Sprintf("unknown token group: %v", g))
+	}
+}
+
+func (l TokenList) String() string {
+	body := make([]string, len(l))
+	for i, token := range l {
+		body[i] = TokenGroupDebugString(token)
+	}
+	return strings.Join(body, " ")
 }
