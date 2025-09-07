@@ -1,0 +1,275 @@
+package parser
+
+import (
+	"testing"
+
+	"github.com/google/go-cmp/cmp"
+	"github.com/timdestan/go-raytracer/internal/gml"
+)
+
+func readAllTokens(input string) []LexerToken {
+	l := NewLexer(input)
+	var tokens []LexerToken
+	for {
+		tk := l.NextToken()
+		tokens = append(tokens, tk)
+		if tk.Type == TokenEOF {
+			break
+		}
+	}
+	return tokens
+}
+
+func TestLexEmptyString(t *testing.T) {
+	input := ""
+	want := []LexerToken{{Type: TokenEOF, Literal: ""}}
+	got := readAllTokens(input)
+	if diff := cmp.Diff(got, want); diff != "" {
+		t.Errorf("token mismatch (-got +want):\n%s", diff)
+	}
+}
+
+func TestIllegalStringEscape(t *testing.T) {
+	input := `"\a"`
+	want := []LexerToken{
+		{Type: TokenIllegal, Literal: `\a`},
+		{Type: TokenEOF, Literal: ""},
+	}
+
+	got := readAllTokens(input)
+
+	if diff := cmp.Diff(got, want); diff != "" {
+		t.Errorf("token mismatch (-got +want):\n%s", diff)
+	}
+}
+
+func TestLexExamples(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  []LexerToken
+	}{
+		{
+			name:  "Sphere",
+			input: gml.TestdataSphere,
+			want: []LexerToken{
+				{Type: TokenLCurly, Literal: "{"},
+				{Type: TokenBinder, Literal: "/v"},
+				{Type: TokenBinder, Literal: "/u"},
+				{Type: TokenBinder, Literal: "/face"},
+				{Type: TokenNumber, Literal: "0.8"},
+				{Type: TokenNumber, Literal: "0.2"},
+				{Type: TokenIdent, Literal: "v"},
+				{Type: TokenIdent, Literal: "point"},
+				{Type: TokenNumber, Literal: "1.0"},
+				{Type: TokenNumber, Literal: "0.2"},
+				{Type: TokenNumber, Literal: "1.0"},
+				{Type: TokenRCurly, Literal: "}"},
+				{Type: TokenIdent, Literal: "sphere"},
+				{Type: TokenBinder, Literal: "/s"},
+				{Type: TokenIdent, Literal: "s"},
+				{Type: TokenNumber, Literal: "-1.2"},
+				{Type: TokenNumber, Literal: "0.0"},
+				{Type: TokenNumber, Literal: "3.0"},
+				{Type: TokenIdent, Literal: "translate"},
+				{Type: TokenIdent, Literal: "s"},
+				{Type: TokenNumber, Literal: "1.2"},
+				{Type: TokenNumber, Literal: "1.0"},
+				{Type: TokenNumber, Literal: "3.0"},
+				{Type: TokenIdent, Literal: "translate"},
+				{Type: TokenIdent, Literal: "union"},
+				{Type: TokenBinder, Literal: "/scene"},
+				{Type: TokenNumber, Literal: "0.5"},
+				{Type: TokenNumber, Literal: "0.5"},
+				{Type: TokenNumber, Literal: "0.5"},
+				{Type: TokenIdent, Literal: "point"},
+				{Type: TokenLBracket, Literal: "["},
+				{Type: TokenNumber, Literal: "1"},
+				{Type: TokenRBracket, Literal: "]"},
+				{Type: TokenIdent, Literal: "scene"},
+				{Type: TokenNumber, Literal: "4"},
+				{Type: TokenNumber, Literal: "90.0"},
+				{Type: TokenNumber, Literal: "320"},
+				{Type: TokenNumber, Literal: "240"},
+				{Type: TokenString, Literal: "sphere.ppm"},
+				{Type: TokenIdent, Literal: "render"},
+				{Type: TokenLCurly, Literal: "{"},
+				{Type: TokenRCurly, Literal: "}"},
+				{Type: TokenLBracket, Literal: "["},
+				{Type: TokenRBracket, Literal: "]"},
+				{Type: TokenBinder, Literal: "/ident"},
+				{Type: TokenBoolean, Literal: "true"},
+				{Type: TokenBoolean, Literal: "false"},
+				{Type: TokenNumber, Literal: "123"},
+				{Type: TokenNumber, Literal: "1.23"},
+				{Type: TokenString, Literal: "hello"},
+				{Type: TokenEOF, Literal: ""},
+			},
+		},
+		{
+			name:  "Cube",
+			input: gml.TestdataCube,
+			want: []LexerToken{
+				{Type: TokenLCurly, Literal: "{"},
+				{Type: TokenBinder, Literal: "/v"},
+				{Type: TokenBinder, Literal: "/u"},
+				{Type: TokenBinder, Literal: "/face"},
+				{Type: TokenNumber, Literal: "1.0"},
+				{Type: TokenNumber, Literal: "0.5"},
+				{Type: TokenNumber, Literal: "0.5"},
+				{Type: TokenIdent, Literal: "point"},
+				{Type: TokenNumber, Literal: "1.0"},
+				{Type: TokenNumber, Literal: "0.0"},
+				{Type: TokenNumber, Literal: "1.0"},
+				{Type: TokenRCurly, Literal: "}"},
+				{Type: TokenIdent, Literal: "cube"},
+				{Type: TokenNumber, Literal: "0.0"},
+				{Type: TokenNumber, Literal: "-0.5"},
+				{Type: TokenNumber, Literal: "4.0"},
+				{Type: TokenIdent, Literal: "translate"},
+				{Type: TokenNumber, Literal: "2.0"},
+				{Type: TokenIdent, Literal: "uscale"},
+				{Type: TokenNumber, Literal: "45.0"},
+				{Type: TokenIdent, Literal: "rotatex"},
+				{Type: TokenNumber, Literal: "135.0"},
+				{Type: TokenIdent, Literal: "rotatey"},
+				{Type: TokenBinder, Literal: "/c"},
+				{Type: TokenNumber, Literal: "1.0"},
+				{Type: TokenNumber, Literal: "1.0"},
+				{Type: TokenNumber, Literal: "1.0"},
+				{Type: TokenIdent, Literal: "point"},
+				{Type: TokenBinder, Literal: "/white"},
+				{Type: TokenNumber, Literal: "0.0"},
+				{Type: TokenNumber, Literal: "0.0"},
+				{Type: TokenNumber, Literal: "1.0"},
+				{Type: TokenIdent, Literal: "point"},
+				{Type: TokenBinder, Literal: "/blue"},
+				{Type: TokenLBracket, Literal: "["},
+				{Type: TokenLBracket, Literal: "["},
+				{Type: TokenIdent, Literal: "blue"},
+				{Type: TokenIdent, Literal: "white"},
+				{Type: TokenRBracket, Literal: "]"},
+				{Type: TokenLBracket, Literal: "["},
+				{Type: TokenIdent, Literal: "white"},
+				{Type: TokenIdent, Literal: "blue"},
+				{Type: TokenRBracket, Literal: "]"},
+				{Type: TokenRBracket, Literal: "]"},
+				{Type: TokenBinder, Literal: "/texture"},
+				{Type: TokenLCurly, Literal: "{"},
+				{Type: TokenBinder, Literal: "/i"},
+				{Type: TokenIdent, Literal: "i"},
+				{Type: TokenNumber, Literal: "0.0"},
+				{Type: TokenIdent, Literal: "lessf"},
+				{Type: TokenLCurly, Literal: "{"},
+				{Type: TokenIdent, Literal: "i"},
+				{Type: TokenIdent, Literal: "negf"},
+				{Type: TokenNumber, Literal: "0.5"},
+				{Type: TokenIdent, Literal: "addf"},
+				{Type: TokenRCurly, Literal: "}"},
+				{Type: TokenLCurly, Literal: "{"},
+				{Type: TokenIdent, Literal: "i"},
+				{Type: TokenRCurly, Literal: "}"},
+				{Type: TokenIdent, Literal: "if"},
+				{Type: TokenRCurly, Literal: "}"},
+				{Type: TokenBinder, Literal: "/fabs"},
+				{Type: TokenLCurly, Literal: "{"},
+				{Type: TokenIdent, Literal: "fabs"},
+				{Type: TokenIdent, Literal: "apply"},
+				{Type: TokenBinder, Literal: "/v"},
+				{Type: TokenIdent, Literal: "fabs"},
+				{Type: TokenIdent, Literal: "apply"},
+				{Type: TokenBinder, Literal: "/u"},
+				{Type: TokenBinder, Literal: "/face"},
+				{Type: TokenLCurly, Literal: "{"},
+				{Type: TokenIdent, Literal: "frac"},
+				{Type: TokenNumber, Literal: "0.5"},
+				{Type: TokenIdent, Literal: "addf"},
+				{Type: TokenIdent, Literal: "floor"},
+				{Type: TokenBinder, Literal: "/i"},
+				{Type: TokenIdent, Literal: "i"},
+				{Type: TokenRCurly, Literal: "}"},
+				{Type: TokenBinder, Literal: "/toIntCoord"},
+				{Type: TokenIdent, Literal: "texture"},
+				{Type: TokenIdent, Literal: "u"},
+				{Type: TokenIdent, Literal: "toIntCoord"},
+				{Type: TokenIdent, Literal: "apply"},
+				{Type: TokenIdent, Literal: "get"},
+				{Type: TokenIdent, Literal: "v"},
+				{Type: TokenIdent, Literal: "toIntCoord"},
+				{Type: TokenIdent, Literal: "apply"},
+				{Type: TokenIdent, Literal: "get"},
+				{Type: TokenNumber, Literal: "0.3"},
+				{Type: TokenNumber, Literal: "0.9"},
+				{Type: TokenNumber, Literal: "1.0"},
+				{Type: TokenRCurly, Literal: "}"},
+				{Type: TokenIdent, Literal: "plane"},
+				{Type: TokenNumber, Literal: "0.0"},
+				{Type: TokenNumber, Literal: "-3.0"},
+				{Type: TokenNumber, Literal: "0.0"},
+				{Type: TokenIdent, Literal: "translate"},
+				{Type: TokenBinder, Literal: "/p"},
+				{Type: TokenLCurly, Literal: "{"},
+				{Type: TokenBinder, Literal: "/v"},
+				{Type: TokenBinder, Literal: "/u"},
+				{Type: TokenBinder, Literal: "/face"},
+				{Type: TokenNumber, Literal: "0.5"},
+				{Type: TokenNumber, Literal: "0.5"},
+				{Type: TokenNumber, Literal: "0.5"},
+				{Type: TokenIdent, Literal: "point"},
+				{Type: TokenNumber, Literal: "0.3"},
+				{Type: TokenNumber, Literal: "0.85"},
+				{Type: TokenNumber, Literal: "1.0"},
+				{Type: TokenRCurly, Literal: "}"},
+				{Type: TokenIdent, Literal: "plane"},
+				{Type: TokenNumber, Literal: "0.0"},
+				{Type: TokenNumber, Literal: "0.0"},
+				{Type: TokenNumber, Literal: "8.0"},
+				{Type: TokenIdent, Literal: "translate"},
+				{Type: TokenNumber, Literal: "270.0"},
+				{Type: TokenIdent, Literal: "rotatex"},
+				{Type: TokenNumber, Literal: "45.0"},
+				{Type: TokenIdent, Literal: "rotatez"},
+				{Type: TokenBinder, Literal: "/p2"},
+				{Type: TokenIdent, Literal: "c"},
+				{Type: TokenIdent, Literal: "p"},
+				{Type: TokenIdent, Literal: "union"},
+				{Type: TokenIdent, Literal: "p2"},
+				{Type: TokenIdent, Literal: "union"},
+				{Type: TokenBinder, Literal: "/scene"},
+				{Type: TokenNumber, Literal: "-10"},
+				{Type: TokenNumber, Literal: "10"},
+				{Type: TokenNumber, Literal: "0"},
+				{Type: TokenIdent, Literal: "point"},
+				{Type: TokenNumber, Literal: "1.0"},
+				{Type: TokenNumber, Literal: "1.0"},
+				{Type: TokenNumber, Literal: "1.0"},
+				{Type: TokenIdent, Literal: "point"},
+				{Type: TokenIdent, Literal: "pointlight"},
+				{Type: TokenBinder, Literal: "/l"},
+				{Type: TokenNumber, Literal: "0.2"},
+				{Type: TokenNumber, Literal: "0.2"},
+				{Type: TokenNumber, Literal: "0.2"},
+				{Type: TokenIdent, Literal: "point"},
+				{Type: TokenLBracket, Literal: "["},
+				{Type: TokenIdent, Literal: "l"},
+				{Type: TokenRBracket, Literal: "]"},
+				{Type: TokenIdent, Literal: "scene"},
+				{Type: TokenNumber, Literal: "7"},
+				{Type: TokenNumber, Literal: "90.0"},
+				{Type: TokenNumber, Literal: "480"},
+				{Type: TokenNumber, Literal: "320"},
+				{Type: TokenString, Literal: "cube.ppm"},
+				{Type: TokenIdent, Literal: "render"},
+				{Type: TokenEOF, Literal: ""},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := readAllTokens(tt.input)
+			if diff := cmp.Diff(got, tt.want); diff != "" {
+				t.Errorf("token mismatch (-got +want):\n%s", diff)
+			}
+		})
+	}
+}

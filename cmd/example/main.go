@@ -8,7 +8,7 @@ import (
 	"log"
 	"os"
 
-	rt "raytracer"
+	rt "github.com/timdestan/go-raytracer"
 )
 
 var (
