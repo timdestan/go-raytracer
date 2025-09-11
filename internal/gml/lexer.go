@@ -1,4 +1,4 @@
-package parser
+package gml
 
 // TODO: The error handling / reporting is not great (or existing at all).
 //

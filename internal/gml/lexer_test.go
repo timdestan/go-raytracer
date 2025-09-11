@@ -1,10 +1,9 @@
-package parser
+package gml
 
 import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/timdestan/go-raytracer/internal/gml"
 )
 
 func readAllTokens(input string) []LexerToken {
@@ -51,7 +50,7 @@ func TestLexExamples(t *testing.T) {
 	}{
 		{
 			name:  "Sphere",
-			input: gml.TestdataSphere,
+			input: TestdataSphere,
 			want: []LexerToken{
 				{Type: TokenLCurly, Literal: "{"},
 				{Type: TokenBinder, Literal: "/v"},
@@ -108,7 +107,7 @@ func TestLexExamples(t *testing.T) {
 		},
 		{
 			name:  "Cube",
-			input: gml.TestdataCube,
+			input: TestdataCube,
 			want: []LexerToken{
 				{Type: TokenLCurly, Literal: "{"},
 				{Type: TokenBinder, Literal: "/v"},

@@ -1,4 +1,4 @@
-package parser
+package gml
 
 import (
 	"fmt"
@@ -6,7 +6,6 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	"github.com/timdestan/go-raytracer/internal/gml"
 )
 
 func TestParseExamples(t *testing.T) {
@@ -22,7 +21,7 @@ func TestParseExamples(t *testing.T) {
 		},
 		{
 			name:  "sphere",
-			input: gml.TestdataSphere,
+			input: TestdataSphere,
 			want: tokens(
 				function(
 					binder("v"), binder("u"), binder("face"),
@@ -66,7 +65,7 @@ func TestParseExamples(t *testing.T) {
 		},
 		{
 			name:  "cube",
-			input: gml.TestdataCube,
+			input: TestdataCube,
 			want: tokens(
 				function(
 					binder("v"), binder("u"), binder("face"),
