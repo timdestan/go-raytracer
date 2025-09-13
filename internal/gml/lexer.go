@@ -174,6 +174,16 @@ func (l *Lexer) readNumber() (string, LexemeType) {
 			l.readChar()
 		}
 	}
+	if l.ch == 'e' || l.ch == 'E' {
+		typ = TokenFloat
+		l.readChar()
+		if l.ch == '+' || l.ch == '-' {
+			l.readChar()
+		}
+		for isDigit(l.ch) {
+			l.readChar()
+		}
+	}
 	return l.input[pos:l.pos], typ
 }
 

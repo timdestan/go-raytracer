@@ -28,6 +28,24 @@ func TestLexEmptyString(t *testing.T) {
 	}
 }
 
+func TestLexScientificNotation(t *testing.T) {
+	for _, input := range []string{
+		"1e-3",
+		"1e+3",
+		"1.0e-4",
+		"1.0e+53",
+	} {
+		want := []LexerToken{
+			{Type: TokenFloat, Literal: input},
+			{Type: TokenEOF, Literal: ""},
+		}
+		got := readAllTokens(input)
+		if diff := cmp.Diff(got, want); diff != "" {
+			t.Errorf("token mismatch (-got +want):\n%s", diff)
+		}
+	}
+}
+
 func TestIllegalStringEscape(t *testing.T) {
 	input := `"\a"`
 	want := []LexerToken{

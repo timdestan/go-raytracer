@@ -146,6 +146,16 @@ func TestParseExamples(t *testing.T) {
 	}
 }
 
+func TestParseScientificNotation(t *testing.T) {
+	got, err := NewParser("1e3").Parse()
+	if err != nil {
+		t.Errorf("Parse() error = %v", err)
+	}
+	if diff := cmp.Diff(got, tokens(1.0e3)); diff != "" {
+		t.Errorf("Parse() mismatch (-got +want):\n%s", diff)
+	}
+}
+
 // Helpers for building parse tree expectations
 
 func sym(name string) *Identifier {
