@@ -6,14 +6,15 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 )
 
-func TestEval(t *testing.T) {
+// TestSimpleEval tests some simple cases with no render call.
+func TestSimpleEval(t *testing.T) {
 	type testCase struct {
 		name    string
 		program string
-		want    Value
-		debug   bool // set to enable debug tracing
+		want    Value // expected top of stack
 	}
 	for _, tt := range []testCase{
 		{
@@ -30,10 +31,6 @@ func TestEval(t *testing.T) {
 					f apply x addi`,
 			want: VInt(3),
 		},
-		// {
-		// 	name:    "sphere",
-		// 	program: TestdataSphere,
-		// },
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			tokens, err := NewParser(tt.program).Parse()
@@ -42,12 +39,6 @@ func TestEval(t *testing.T) {
 				return
 			}
 			st := NewEvalState()
-			if tt.debug {
-				st.Tracer = func(s string) {
-					fmt.Println(s)
-				}
-				printInBox(tt.name)
-			}
 			err = st.Eval(tokens)
 			if err != nil {
 				t.Errorf("eval error: %v", err)
@@ -63,7 +54,77 @@ func TestEval(t *testing.T) {
 			}
 		})
 	}
+}
 
+var ignoreSurfaceFn = cmpopts.IgnoreFields(Sphere{}, "SurfaceFn")
+
+// TestSingleRender tests programs where we expect exactly one call to render.
+func TestSingleRender(t *testing.T) {
+	type testCase struct {
+		name           string
+		program        string
+		wantRenderArgs *RenderArgs
+		debug          bool // set to enable debug tracing
+	}
+	for _, tt := range []testCase{
+		{
+			name:    "sphere",
+			program: TestdataSphere,
+			wantRenderArgs: &RenderArgs{
+				AmbientLight: &Point{X: 0.5, Y: 0.5, Z: 0.5},
+				Lights:       []int{1},
+				Scene: &Union{
+					Objects: []SceneObject{
+						&Sphere{
+							Center: Point{X: 1.2, Y: 1.0, Z: 3.0},
+							Radius: 1.0,
+						},
+						&Sphere{
+							Center: Point{X: -1.2, Y: 0.0, Z: 3.0},
+							Radius: 1.0,
+						},
+					},
+				},
+				Depth:  4,
+				Fov:    90.0,
+				Width:  320,
+				Height: 240,
+				File:   "sphere.ppm",
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			tokens, err := NewParser(tt.program).Parse()
+			if err != nil {
+				t.Errorf("parse error: %v", err)
+				return
+			}
+			var got *RenderArgs
+			st := NewEvalState()
+			st.Render = func(args *RenderArgs) {
+				if got == nil {
+					got = args
+				} else {
+					t.Errorf("multiple render calls: %v", args)
+				}
+			}
+			if tt.debug {
+				st.Tracer = func(s string) {
+					fmt.Print(s)
+				}
+				printInBox(tt.name)
+			}
+			err = st.Eval(tokens)
+			if err != nil {
+				t.Errorf("eval error: %v", err)
+				return
+			}
+
+			if diff := cmp.Diff(got, tt.wantRenderArgs, ignoreSurfaceFn); diff != "" {
+				t.Errorf("Eval() mismatch (-got +want):\n%s", diff)
+			}
+		})
+	}
 }
 
 func printInBox(msg string) {

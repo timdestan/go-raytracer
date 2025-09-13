@@ -89,18 +89,22 @@ func (f *Function) Type() TokenGroupType {
 	return TGFunction
 }
 
+func FormatFloat(f float64) string {
+	str := strconv.FormatFloat(f, 'g', -1, 64)
+	if strings.Contains(str, ".") || strings.ContainsAny(str, "eE") {
+		return str
+	}
+	// Show trailing .0 even for integers to make it obvious the result is
+	// a float.
+	return str + ".0"
+}
+
 func TokenGroupDebugString(g TokenGroup) string {
 	switch g := g.(type) {
 	case *IntLiteral:
 		return strconv.FormatInt(g.Value, 10)
 	case *FloatLiteral:
-		str := strconv.FormatFloat(g.Value, 'g', -1, 64)
-		if strings.Contains(str, ".") || strings.ContainsAny(str, "eE") {
-			return str
-		}
-		// Show trailing .0 even for integers to make it obvious the result is
-		// a float.
-		return str + ".0"
+		return FormatFloat(g.Value)
 	case *BoolLiteral:
 		return strconv.FormatBool(g.Value)
 	case *StringLiteral:
