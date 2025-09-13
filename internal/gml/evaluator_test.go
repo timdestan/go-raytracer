@@ -132,3 +132,55 @@ func printInBox(msg string) {
 	rowOfStars := strings.Repeat("*", len(msg))
 	fmt.Printf("%s\n%s\n%s\n", rowOfStars, msg, rowOfStars)
 }
+
+// Run benchmarks with:
+// go test -run ^$ -bench . -cpuprofile=/tmp/cpu.prof
+// go tool pprof -http=:8080 /tmp/cpu.prof
+
+func BenchmarkParseAndEval(b *testing.B) {
+	for b.Loop() {
+		tokens, err := NewParser(TestdataSphere).Parse()
+		if err != nil {
+			b.Errorf("parse error: %v", err)
+			return
+		}
+		st := NewEvalState()
+		st.Render = func(args *RenderArgs) {}
+		err = st.Eval(tokens)
+		if err != nil {
+			b.Errorf("eval error: %v", err)
+			return
+		}
+	}
+}
+
+// Run benchmarks with:
+// go test -run ^$ -bench . -cpuprofile=/tmp/cpu.prof
+// go tool pprof -http=:8080 /tmp/cpu.prof
+
+func BenchmarkParse(b *testing.B) {
+	for b.Loop() {
+		_, err := NewParser(TestdataSphere).Parse()
+		if err != nil {
+			b.Errorf("parse error: %v", err)
+			return
+		}
+	}
+}
+
+func BenchmarkEval(b *testing.B) {
+	tokens, err := NewParser(TestdataSphere).Parse()
+	if err != nil {
+		b.Errorf("parse error: %v", err)
+		return
+	}
+	for b.Loop() {
+		st := NewEvalState()
+		st.Render = func(args *RenderArgs) {}
+		err = st.Eval(tokens)
+		if err != nil {
+			b.Errorf("eval error: %v", err)
+			return
+		}
+	}
+}

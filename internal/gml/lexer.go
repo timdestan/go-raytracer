@@ -20,7 +20,8 @@ const (
 	TokenIdent
 	TokenBinder
 	TokenBoolean
-	TokenNumber
+	TokenInt
+	TokenFloat
 	TokenString
 	TokenLCurly
 	TokenRCurly
@@ -35,7 +36,8 @@ var lexemeNames = [...]string{
 	TokenIdent:    "Ident",
 	TokenBinder:   "Binder",
 	TokenBoolean:  "Boolean",
-	TokenNumber:   "Number",
+	TokenInt:      "Integer",
+	TokenFloat:    "Float",
 	TokenString:   "String",
 	TokenLCurly:   "LCurly",
 	TokenRCurly:   "RCurly",
@@ -128,8 +130,8 @@ func (l *Lexer) NextToken() LexerToken {
 			}
 			return LexerToken{Type: tokType, Literal: literal}
 		} else if isDigit(l.ch) || l.ch == '-' {
-			literal := l.readNumber()
-			return LexerToken{Type: TokenNumber, Literal: literal}
+			literal, typ := l.readNumber()
+			return LexerToken{Type: typ, Literal: literal}
 		} else {
 			return l.newToken(TokenIllegal)
 		}
@@ -156,8 +158,9 @@ func (l *Lexer) readIdentifier() string {
 	return l.input[pos:l.pos]
 }
 
-func (l *Lexer) readNumber() string {
+func (l *Lexer) readNumber() (string, LexemeType) {
 	pos := l.pos
+	typ := TokenInt
 	if l.ch == '-' {
 		l.readChar()
 	}
@@ -165,12 +168,13 @@ func (l *Lexer) readNumber() string {
 		l.readChar()
 	}
 	if l.ch == '.' {
+		typ = TokenFloat
 		l.readChar()
 		for isDigit(l.ch) {
 			l.readChar()
 		}
 	}
-	return l.input[pos:l.pos]
+	return l.input[pos:l.pos], typ
 }
 
 var errIllegalEscape = errors.New("illegal escape sequence")

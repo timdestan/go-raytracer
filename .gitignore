@@ -1,5 +1,5 @@
 raytracer
-raytracer.test
+*.test
 
 # Should probably put this in an output dir or something.
 example*.png

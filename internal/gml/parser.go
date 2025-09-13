@@ -66,7 +66,7 @@ func startsTokenGroup(tokenType LexemeType) bool {
 	case TokenLBracket, TokenLCurly:
 		return true
 	// Single tokens:
-	case TokenIdent, TokenNumber, TokenString, TokenBinder, TokenBoolean:
+	case TokenIdent, TokenInt, TokenFloat, TokenString, TokenBinder, TokenBoolean:
 		return true
 	default:
 		return false
@@ -95,14 +95,17 @@ func (p *Parser) parseTokenGroup() (TokenGroup, error) {
 //	| 	Identifier
 //	| 	Binder
 //	| 	Boolean
-//	| 	Number
+//	| 	Integer
+//	| 	Float
 //	| 	String
 func (p *Parser) parseSingleToken() (TokenGroup, error) {
 	switch p.currToken().Type {
 	case TokenIdent:
 		return &Identifier{Name: p.readAndAdvanceToken().Literal}, nil
-	case TokenNumber:
-		return p.parseNumberLiteral()
+	case TokenInt:
+		return p.parseIntLiteral()
+	case TokenFloat:
+		return p.parseFloatLiteral()
 	case TokenString:
 		return &StringLiteral{Value: p.readAndAdvanceToken().Literal}, nil
 	case TokenBinder:
@@ -123,16 +126,22 @@ func (p *Parser) parseBinder() (*Binder, error) {
 	return &Binder{Name: name[1:]}, nil
 }
 
-func (p *Parser) parseNumberLiteral() (TokenGroup, error) {
+func (p *Parser) parseFloatLiteral() (TokenGroup, error) {
 	token := p.readAndAdvanceToken()
-	if val, err := strconv.ParseInt(token.Literal, 10, 64); err == nil {
-		return &IntLiteral{Value: val}, nil
-	}
 	val, err := strconv.ParseFloat(token.Literal, 64)
 	if err != nil {
 		return nil, fmt.Errorf("could not parse number: %s", token.Literal)
 	}
 	return &FloatLiteral{Value: val}, nil
+}
+
+func (p *Parser) parseIntLiteral() (TokenGroup, error) {
+	token := p.readAndAdvanceToken()
+	val, err := strconv.ParseInt(token.Literal, 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("could not parse number: %s", token.Literal)
+	}
+	return &IntLiteral{Value: val}, nil
 }
 
 func (p *Parser) parseBooleanLiteral() (TokenGroup, error) {
