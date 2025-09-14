@@ -72,7 +72,12 @@ func TestSingleRender(t *testing.T) {
 			program: TestdataSphere,
 			wantRenderArgs: &RenderArgs{
 				AmbientLight: &Point{X: 0.5, Y: 0.5, Z: 0.5},
-				Lights:       []int{1},
+				Lights: []*PointLight{
+					{
+						Position: Point{X: -10.0, Y: 10.0, Z: 0.0},
+						Color:    Point{X: 1.0, Y: 1.0, Z: 1.0},
+					},
+				},
 				Scene: &Union{
 					Objects: []SceneObject{
 						&Sphere{

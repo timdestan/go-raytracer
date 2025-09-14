@@ -18,11 +18,13 @@ s -1.2 0.0 3.0 translate 	  % sphere at (-1, 0, 3)
 s  1.2 1.0 3.0 translate	  % sphere at (1, 1, 3)
 union /scene	  	% compose
 
-
 %s1 s2 union /s
 
+-10.0 10.0 0.0 point
+1.0 1.0 1.0 point pointlight /l
+
 0.5 0.5 0.5 point			% ambient
-[ 1 ]						% lights
+[ l ]						% lights
 scene						% object
 4							% depth
 90.0							% fov

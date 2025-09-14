@@ -10,7 +10,7 @@ import (
 
 type RenderArgs struct {
 	AmbientLight *Point // The intensity of ambient light (a point)
-	Lights       []int
+	Lights       []*PointLight
 	Scene        SceneObject
 	Depth        int     // The recursion depth limit
 	Fov          float64 // Degrees
@@ -171,6 +171,17 @@ func (u *Union) Translate(x, y, z VReal) SceneObject {
 	return v
 }
 
+type PointLight struct {
+	Position Point
+	Color    Point // RGB
+}
+
+func (PointLight) value() {}
+
+func (p PointLight) String() string {
+	return fmt.Sprintf("PointLight(pos=%v, color=%v)", p.Position, p.Color)
+}
+
 func NewEvalState() *EvalState {
 	return &EvalState{
 		Env: make(map[string]Value),
@@ -323,6 +334,7 @@ func init() {
 	registerBuiltin("sphere", sphere)
 	registerBuiltin("plane", nil)
 	registerBuiltin("point", point)
+	registerBuiltin("pointlight", pointlight)
 	registerBuiltin("translate", translate)
 	registerBuiltin("uscale", nil)
 	registerBuiltin("rotatex", nil)
@@ -362,6 +374,20 @@ func point(e *EvalState) error {
 		return err
 	}
 	e.push(Point{X: x, Y: y, Z: z})
+	return nil
+}
+
+func pointlight(e *EvalState) error {
+	// pos color pointlight
+	color, err := popValue[Point](e)
+	if err != nil {
+		return err
+	}
+	pos, err := popValue[Point](e)
+	if err != nil {
+		return err
+	}
+	e.push(&PointLight{Position: pos, Color: color})
 	return nil
 }
 
@@ -443,12 +469,12 @@ func render(e *EvalState) error {
 		return err
 	}
 	// Lights should contain int values
-	lightInts := make([]int, len(lights.Elements))
+	lightInts := make([]*PointLight, len(lights.Elements))
 	for i, l := range lights.Elements {
-		if l, ok := l.(VInt); ok {
-			lightInts[i] = int(l)
+		if l, ok := l.(*PointLight); ok {
+			lightInts[i] = l
 		} else {
-			return fmt.Errorf("expected lights array to contain int, got %T", l)
+			return fmt.Errorf("expected lights array to contain *PointLight, got %T", l)
 		}
 	}
 	if e.Render == nil {
