@@ -468,11 +468,10 @@ func render(e *EvalState) error {
 	if err != nil {
 		return err
 	}
-	// Lights should contain int values
-	lightInts := make([]*PointLight, len(lights.Elements))
+	lightValues := make([]*PointLight, len(lights.Elements))
 	for i, l := range lights.Elements {
 		if l, ok := l.(*PointLight); ok {
-			lightInts[i] = l
+			lightValues[i] = l
 		} else {
 			return fmt.Errorf("expected lights array to contain *PointLight, got %T", l)
 		}
@@ -488,7 +487,7 @@ func render(e *EvalState) error {
 		Depth:        int(depth),
 		Scene:        obj,
 		AmbientLight: &amb,
-		Lights:       lightInts,
+		Lights:       lightValues,
 	})
 	return nil
 
