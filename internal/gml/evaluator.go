@@ -171,18 +171,9 @@ func (u *Union) Translate(x, y, z VReal) SceneObject {
 	return v
 }
 
-// TODO: Object
-// TODO: Light
-
 func NewEvalState() *EvalState {
 	return &EvalState{
 		Env: make(map[string]Value),
-	}
-}
-
-func (e *EvalState) trace(msg string) {
-	if e.Tracer != nil {
-		e.Tracer(msg)
 	}
 }
 

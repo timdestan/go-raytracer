@@ -11,8 +11,24 @@ type Parser struct {
 	curr  LexerToken
 }
 
+func Parse(input string) (TokenList, error) {
+	return NewParser(input).Parse()
+}
+
 func NewParser(input string) *Parser {
 	return &Parser{lexer: NewLexer(input)}
+}
+
+func (p *Parser) Parse() (TokenList, error) {
+	p.readAndAdvanceToken()
+	l, err := p.parseTokenList()
+	if err != nil {
+		return nil, err
+	}
+	if p.curr.Type != TokenEOF {
+		return nil, fmt.Errorf("unexpected token: %s, expected end of input", p.curr.Type)
+	}
+	return l, nil
 }
 
 func (p *Parser) readAndAdvanceToken() LexerToken {
@@ -31,18 +47,6 @@ func (p *Parser) consume(tokenType LexemeType) error {
 
 func (p *Parser) currToken() LexerToken {
 	return p.curr
-}
-
-func (p *Parser) Parse() (TokenList, error) {
-	p.readAndAdvanceToken()
-	l, err := p.parseTokenList()
-	if err != nil {
-		return nil, err
-	}
-	if p.curr.Type != TokenEOF {
-		return nil, fmt.Errorf("unexpected token: %s, expected end of input", p.curr.Type)
-	}
-	return l, nil
 }
 
 // TokenList

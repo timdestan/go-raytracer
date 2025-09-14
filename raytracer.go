@@ -1,10 +1,13 @@
 package raytracer
 
 import (
+	"errors"
 	"fmt"
 	"image"
 	"math"
 	"math/rand"
+
+	"github.com/timdestan/go-raytracer/internal/gml"
 )
 
 type Vec3 struct {
@@ -436,4 +439,19 @@ func Render(scene *Scene) image.Image {
 		}
 	}
 	return img
+}
+
+func ParseAndRenderGML(programText string) (image.Image, error) {
+	token, err := gml.Parse(programText)
+	if err != nil {
+		return nil, err
+	}
+	state := gml.NewEvalState()
+	state.Render = func(args *gml.RenderArgs) {}
+
+	err = state.Eval(token)
+	if err != nil {
+		return nil, err
+	}
+	return nil, errors.New("not implemented")
 }
