@@ -93,13 +93,13 @@ func compareImages(t *testing.T, got, want image.Image) {
 	}
 }
 
-//go:embed testdata/goldens/example1.png
-var goldenExample1Bytes []byte
+//go:embed testdata/goldens/example_canned.png
+var goldenExampleCannedBytes []byte
 
-func TestRenderGolden(t *testing.T) {
-	got := Render(ExampleScene1(1900, 1200))
+func TestRenderCannedScene(t *testing.T) {
+	got := Render(ExampleCannedScene(1920, 1200))
 
-	want, err := png.Decode(bytes.NewReader(goldenExample1Bytes))
+	want, err := png.Decode(bytes.NewReader(goldenExampleCannedBytes))
 	if err != nil {
 		t.Fatalf("png.Decode: %v", err)
 	}
@@ -125,9 +125,9 @@ func TestRenderSphere(t *testing.T) {
 // go test -run ^$ -bench . -cpuprofile=/tmp/cpu.prof
 // go tool pprof -http=:8080 /tmp/cpu.prof
 
-func BenchmarkRender(b *testing.B) {
+func BenchmarkCanned(b *testing.B) {
 	for b.Loop() {
-		Render(ExampleScene1(1900, 1200))
+		Render(ExampleCannedScene(1920, 1200))
 	}
 }
 

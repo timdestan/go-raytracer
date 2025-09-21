@@ -1,6 +1,6 @@
 package raytracer
 
-func ExampleScene1(width, height int) *Scene {
+func ExampleCannedScene(width, height int) *Scene {
 	return &Scene{
 		WidthPx:  width,
 		HeightPx: height,

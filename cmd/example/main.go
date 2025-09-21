@@ -18,7 +18,7 @@ var (
 )
 
 const (
-	WIDTH_PX  = 1900
+	WIDTH_PX  = 1920
 	HEIGHT_PX = 1200
 )
 
@@ -32,7 +32,7 @@ func writeImage(img image.Image, filename string) error {
 }
 
 func renderCannedScene() image.Image {
-	return rt.Render(rt.ExampleScene1(WIDTH_PX, HEIGHT_PX))
+	return rt.Render(rt.ExampleCannedScene(WIDTH_PX, HEIGHT_PX))
 }
 
 func renderFromGMLFile(filename string) (image.Image, error) {

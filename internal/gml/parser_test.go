@@ -53,8 +53,8 @@ func TestParseExamples(t *testing.T) {
 				sym("scene"),
 				4,
 				90.0,
-				320,
-				240,
+				1920,
+				1200,
 				"sphere.ppm",
 				sym("render"),
 				// Trailing junk

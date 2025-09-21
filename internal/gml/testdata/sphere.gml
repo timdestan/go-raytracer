@@ -28,7 +28,7 @@ union /scene	  	% compose
 scene						% object
 4							% depth
 90.0							% fov
-320 240						% wid ht
+1920 1200						% wid ht
 "sphere.ppm"					% output file
 render
 
