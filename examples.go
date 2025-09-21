@@ -43,6 +43,7 @@ func ExampleCannedScene(width, height int) *Scene {
 		Lights: []*Light{
 			{Position: Vec3{X: 5, Y: 5, Z: 0}, Color: RGB(1, 1, 1)},
 		},
+		AmbientLight: Vec3{X: 0.1, Y: 0.1, Z: 0.1},
 		BgColorStart: Vec3{X: 0.0, Y: 0.0, Z: 0.0},
 		BgColorEnd:   Vec3{X: 0.5, Y: 0.7, Z: 1.0},
 	}

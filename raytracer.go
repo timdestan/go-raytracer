@@ -280,9 +280,8 @@ func (l *Light) String() string {
 func computeLighting(hit *Hit, scene *Scene, ray *Ray) *Vec3 {
 	V := ray.Direction.Neg() // view vector = opposite of ray
 
-	const ambientTerm = 0.1 // Constant ambient term
 	mat := hit.Material
-	result := mat.Color.Scale(ambientTerm * mat.Kd)
+	result := mat.Color.Mul(&scene.AmbientLight).Scale(mat.Kd)
 
 	for _, light := range scene.Lights {
 		lightToHit := light.Position.Sub(hit.Point)
@@ -473,6 +472,8 @@ type Scene struct {
 	Objects []SceneObject
 	Lights  []*Light
 
+	AmbientLight Vec3
+
 	// BgColorStart and BgColorEnd define the 2 ends of the gradient
 	// background color.
 	BgColorStart, BgColorEnd Vec3
@@ -549,8 +550,6 @@ func ParseAndRenderGML(programText string) (image.Image, error) {
 			return err
 		}
 		scene := &Scene{
-			// TODO: Ambient light
-
 			WidthPx:  args.Width,
 			HeightPx: args.Height,
 
@@ -559,6 +558,8 @@ func ParseAndRenderGML(programText string) (image.Image, error) {
 
 			Objects: convertedObjects,
 			Lights:  convertGMLLights(args.Lights),
+
+			AmbientLight: pointToVec3(*args.AmbientLight),
 		}
 		renderedImage = Render(scene)
 		return nil
