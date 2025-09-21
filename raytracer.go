@@ -139,6 +139,11 @@ type Material struct {
 	Fuzziness       float64 // For fuzzy reflections (0 = no fuzz, 1 = max fuzz)
 	Transparency    float64 // 0.0 (opaque) to 1.0 (fully transparent)
 	RefractiveIndex float64 // For transparent materials (1.0 = air, 1.5 = glass)
+
+	// Phong parameters
+	Kd               float64 // diffuse reflection coefficient
+	Ks               float64 // specular reflection coefficient
+	SpecularExponent float64
 }
 
 type Hit struct {
@@ -154,9 +159,11 @@ type SceneObject interface {
 }
 
 type Sphere struct {
-	Center   Vec3
-	Radius   float64
-	Material Material
+	Center    Vec3
+	Radius    float64
+	Material  Material
+	SurfaceFn *gml.VClosure
+	EvalState *gml.EvalState
 }
 
 func (sphere *Sphere) Intersect(ray *Ray) *Hit {
@@ -170,12 +177,18 @@ func (sphere *Sphere) Intersect(ray *Ray) *Hit {
 	t0 := t_ca - t_hc
 	if t0 > 0.0 {
 		hitPoint := ray.Origin.Add(ray.Direction.Scale(t0))
+		material, err := computeSphereSurface(sphere, hitPoint)
+		if err != nil {
+			// TODO: Render operation should be able to propagate an error.
+			fmt.Printf("Sphere surfaceFn evaluation failed with error: %v\n", err)
+			return nil
+		}
 		return &Hit{
 			Object:   sphere,
 			T:        t0,
 			Point:    hitPoint,
 			Normal:   hitPoint.Sub(&sphere.Center).Normalize(),
-			Material: &sphere.Material,
+			Material: material,
 		}
 	}
 	// TODO: Should we include these far hits?
@@ -186,23 +199,65 @@ func (sphere *Sphere) Intersect(ray *Ray) *Hit {
 	return nil
 }
 
-func (s *Sphere) SurfaceMaterial() *Material {
-
-	// TODO: Sphere surface function in GML
-
+func computeSphereSurface(sphere *Sphere, point *Vec3) (*Material, error) {
+	if sphere.SurfaceFn == nil {
+		return &sphere.Material, nil
+	}
+	if sphere.EvalState == nil {
+		return nil, fmt.Errorf("sphere has no eval state")
+	}
+	// Need to pass the face (always 0) and u and v coordinates on the stack.
+	//
 	// (0, u, v)
-
+	//
 	// x = sqrt(1 - y^2)sin(2*pi u)
-	// y,
-	// z = sqrt(1 - y^2)cos(2*pi u)
-	// where y = 2 v - 1
-
 	// y = 2 v - 1
-
+	// z = sqrt(1 - y^2)cos(2*pi u)
+	//
 	// v = (y + 1.0) / 2.0
-	// u = acos (z / sqrt (1.0 - y * y)) / (2.0 * PI);
+	// u = acos (z / sqrt (1.0 - y * y)) / (2.0 * pi)
 
-	return &s.Material
+	// TODO: How do we know the sqrt will not go negative?
+	v := (point.Y + 1.0) / 2.0
+	u := math.Acos(point.Z/math.Sqrt(1.0-point.Y*point.Y)) / (2.0 * math.Pi)
+
+	// TODO: Might be simpler to just construct the token list:
+	//
+	// 0 u v sphere.EvalState.code apply
+	//
+	// And evaluate that
+
+	sphere.EvalState.Push(gml.VInt(0))
+	sphere.EvalState.Push(gml.VReal(u))
+	sphere.EvalState.Push(gml.VReal(v))
+
+	oldEnv := sphere.EvalState.Env
+	defer func() { sphere.EvalState.Env = oldEnv }()
+	sphere.EvalState.Env = sphere.SurfaceFn.Env
+	err := sphere.EvalState.Eval(sphere.SurfaceFn.Code)
+	if err != nil {
+		return nil, err
+	}
+
+	// x y z point        % surface color
+	// 1.0 0.2 1.0		  % kd ks n
+
+	kd, ks, n, err := gml.Pop3[gml.VReal](sphere.EvalState)
+	if err != nil {
+		return nil, err
+	}
+	surfaceColor, err := gml.PopValue[gml.Point](sphere.EvalState)
+	if err != nil {
+		return nil, err
+	}
+	return &Material{
+		Color:            pointToVec3(surfaceColor),
+		Kd:               float64(kd),
+		Ks:               float64(ks),
+		SpecularExponent: float64(n),
+		// Reflectivity:     0.0,
+		// Transparency:     0.0,
+	}, nil
 }
 
 func (v *Sphere) String() string {
@@ -227,7 +282,7 @@ func computeLighting(hit *Hit, scene *Scene, ray *Ray) *Vec3 {
 
 	const ambientTerm = 0.1 // Constant ambient term
 	mat := hit.Material
-	result := mat.Color.Scale(ambientTerm)
+	result := mat.Color.Scale(ambientTerm * mat.Kd)
 
 	for _, light := range scene.Lights {
 		lightToHit := light.Position.Sub(hit.Point)
@@ -239,13 +294,13 @@ func computeLighting(hit *Hit, scene *Scene, ray *Ray) *Vec3 {
 		}
 
 		// Diffuse term
-		diff := math.Max(0, hit.Normal.Dot(lightDir))
+		diff := math.Max(0, hit.Normal.Dot(lightDir)) * mat.Kd
 		diffuse := mat.Color.Mul(&light.Color).Scale(diff)
 
-		// Specular term
-		R := lightDir.Neg().Reflect(hit.Normal) // reflect light direction about normal
-		spec := math.Max(0, R.Dot(V))
-		specular := light.Color.Scale(mat.Reflectivity * math.Pow(spec, 50)) // 50 = fixed shininess
+		// Specular term (Blinn-Phong reflection)
+		H := V.Add(lightDir).Normalize()
+		spec := math.Max(0, hit.Normal.Dot(H))
+		specular := light.Color.Scale(mat.Ks * math.Pow(spec, mat.SpecularExponent))
 
 		result.AddI(diffuse).AddI(specular)
 	}
@@ -410,9 +465,10 @@ func square(x float64) float64 {
 type Scene struct {
 	WidthPx, HeightPx int
 
-	// Distance from camera to screen. The viewport plane is at
-	// Z=-CameraDistance with both Y and Z going from -0.5 to 0.5.
-	CameraDistance float64
+	// Fov is the camera field of view in degrees
+	Fov float64
+
+	RecursionDepth int
 
 	Objects []SceneObject
 	Lights  []*Light
@@ -425,8 +481,26 @@ type Scene struct {
 func Render(scene *Scene) image.Image {
 	img := image.NewRGBA(image.Rect(0, 0, scene.WidthPx, scene.HeightPx))
 
-	viewportWidth := 4.0
+	var recursionLimit = scene.RecursionDepth
+	if recursionLimit <= 0 {
+		recursionLimit = 3
+	}
+
+	if scene.Fov <= 0.0 {
+		fmt.Printf("warning: fov not specified, using default of 90 degrees\n")
+		scene.Fov = 90.0
+	}
+	fovRadians := scene.Fov * math.Pi / 180.0
+	viewportWidth := 2.0 / math.Tan(fovRadians/2.0)
+
 	viewportHeight := viewportWidth * (float64(scene.HeightPx) / float64(scene.WidthPx))
+	fmt.Printf("viewport size: %f x %f\n", viewportWidth, viewportHeight)
+
+	eyePosition := &Vec3{
+		X: 0.0,
+		Y: 0.0,
+		Z: -1.0,
+	}
 
 	for x := range scene.WidthPx {
 		for y := range scene.HeightPx {
@@ -439,19 +513,15 @@ func Render(scene *Scene) image.Image {
 				dv := rand.Float64() - 0.5
 				u := (float64(x)+du)/float64(scene.WidthPx-1)*viewportWidth - viewportWidth/2.0
 				v := (float64(y)+dv)/float64(scene.HeightPx-1)*viewportHeight - viewportHeight/2.0
-
-				origin := &Vec3{
+				screenPoint := &Vec3{
 					X: u,
 					Y: -v,
-					Z: -scene.CameraDistance,
+					Z: 0.0,
 				}
-				// The ray vector goes from the origin to the screen pixel
 				ray := Ray{
-					Origin:    origin,
-					Direction: origin.Normalize(),
+					Origin:    screenPoint,
+					Direction: screenPoint.Sub(eyePosition).Normalize(),
 				}
-
-				const recursionLimit = 3
 				color := traceRay(scene, &ray, recursionLimit)
 				totalColor.AddI(color)
 			}
@@ -467,24 +537,82 @@ func ParseAndRenderGML(programText string) (image.Image, error) {
 		return nil, err
 	}
 	state := gml.NewEvalState()
-	state.Render = func(args *gml.RenderArgs) {
+
+	// TODO: At the moment we ignore any filename requested and always write
+	// to one image. All example programs at the moment only render once.
+	var renderedImage image.Image
+	state.Render = func(state *gml.EvalState, args *gml.RenderArgs) error {
 		// Create a scene object from the render args.
 
-		// 	scene := &Scene{
-		// 		WidthPx:  args.Width,
-		// 		HeightPx: args.Height,
-		// 		// BgColorStart:  args.BackgroundColorStart,
-		// 		// BgColorEnd:    args.BackgroundColorEnd,
-		// 		Spheres:        args.Spheres,
-		// 		Lights:         args.Lights,
-		// 		CameraDistance: 4.0,
-		// 	}
+		convertedObjects, err := convertGMLSceneObjects([]gml.SceneObject{args.Scene}, state)
+		if err != nil {
+			return err
+		}
+		scene := &Scene{
+			// TODO: Ambient light
 
+			WidthPx:  args.Width,
+			HeightPx: args.Height,
+
+			Fov:            args.Fov,
+			RecursionDepth: args.Depth,
+
+			Objects: convertedObjects,
+			Lights:  convertGMLLights(args.Lights),
+		}
+		renderedImage = Render(scene)
+		return nil
 	}
 
 	err = state.Eval(token)
 	if err != nil {
 		return nil, err
 	}
-	return nil, errors.New("not implemented")
+	if renderedImage == nil || renderedImage.Bounds().Empty() {
+		return nil, errors.New("no image was rendered by the GML program")
+	}
+	return renderedImage, nil
+}
+
+func convertGMLSceneObjects(sceneObjects []gml.SceneObject, evalState *gml.EvalState) ([]SceneObject, error) {
+	toVisit := sceneObjects
+	var result []SceneObject
+	for len(toVisit) > 0 {
+		sceneObject := toVisit[0]
+		toVisit = toVisit[1:]
+		switch typedObject := sceneObject.(type) {
+		case *gml.Sphere:
+			result = append(result, &Sphere{
+				Center: pointToVec3(typedObject.Center),
+				Radius: float64(typedObject.Radius),
+				// Material: nil,
+				SurfaceFn: &typedObject.SurfaceFn,
+				EvalState: evalState,
+			})
+		case *gml.Union:
+			toVisit = append(toVisit, typedObject.Objects...)
+		default:
+			return nil, fmt.Errorf("unknown scene object type %T", sceneObject)
+		}
+	}
+	return result, nil
+}
+
+func convertGMLLights(lights []*gml.PointLight) []*Light {
+	var result []*Light
+	for _, light := range lights {
+		result = append(result, &Light{
+			Position: pointToVec3(light.Position),
+			Color:    pointToVec3(light.Color),
+		})
+	}
+	return result
+}
+
+func pointToVec3(point gml.Point) Vec3 {
+	return Vec3{
+		X: float64(point.X),
+		Y: float64(point.Y),
+		Z: float64(point.Z),
+	}
 }

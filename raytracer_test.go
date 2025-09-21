@@ -3,11 +3,13 @@ package raytracer
 import (
 	"bytes"
 	"fmt"
+	"image"
 	"image/png"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/timdestan/go-raytracer/internal/gml"
 
 	_ "embed"
 )
@@ -54,16 +56,9 @@ func TestNormalizeIsUnitLength(t *testing.T) {
 	}
 }
 
-//go:embed testdata/goldens/example1.png
-var goldenExample1Bytes []byte
+func compareImages(t *testing.T, got, want image.Image) {
+	t.Helper()
 
-func TestRenderGolden(t *testing.T) {
-	got := Render(ExampleScene1(1900, 1200))
-
-	want, err := png.Decode(bytes.NewReader(goldenExample1Bytes))
-	if err != nil {
-		t.Fatalf("png.Decode: %v", err)
-	}
 	if diff := cmp.Diff(got.Bounds(), want.Bounds()); diff != "" {
 		t.Errorf("Render() bounds mismatch (-got +want):\n%s", diff)
 	}
@@ -98,6 +93,34 @@ func TestRenderGolden(t *testing.T) {
 	}
 }
 
+//go:embed testdata/goldens/example1.png
+var goldenExample1Bytes []byte
+
+func TestRenderGolden(t *testing.T) {
+	got := Render(ExampleScene1(1900, 1200))
+
+	want, err := png.Decode(bytes.NewReader(goldenExample1Bytes))
+	if err != nil {
+		t.Fatalf("png.Decode: %v", err)
+	}
+	compareImages(t, got, want)
+}
+
+//go:embed testdata/goldens/example_sphere.png
+var goldenExampleSphereBytes []byte
+
+func TestRenderSphere(t *testing.T) {
+	got, err := ParseAndRenderGML(gml.TestdataSphere)
+	if err != nil {
+		t.Fatalf("ParseAndRenderGML: %v", err)
+	}
+	want, err := png.Decode(bytes.NewReader(goldenExampleSphereBytes))
+	if err != nil {
+		t.Fatalf("png.Decode: %v", err)
+	}
+	compareImages(t, got, want)
+}
+
 // Run benchmarks with:
 // go test -run ^$ -bench . -cpuprofile=/tmp/cpu.prof
 // go tool pprof -http=:8080 /tmp/cpu.prof
@@ -105,5 +128,14 @@ func TestRenderGolden(t *testing.T) {
 func BenchmarkRender(b *testing.B) {
 	for b.Loop() {
 		Render(ExampleScene1(1900, 1200))
+	}
+}
+
+func BenchmarkSphere(b *testing.B) {
+	for b.Loop() {
+		_, err := ParseAndRenderGML(gml.TestdataSphere)
+		if err != nil {
+			b.Fatalf("BenchmarkSphere: %v", err)
+		}
 	}
 }

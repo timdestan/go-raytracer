@@ -106,12 +106,13 @@ func TestSingleRender(t *testing.T) {
 			}
 			var got *RenderArgs
 			st := NewEvalState()
-			st.Render = func(args *RenderArgs) {
+			st.Render = func(e *EvalState, args *RenderArgs) error {
 				if got == nil {
 					got = args
 				} else {
 					t.Errorf("multiple render calls: %v", args)
 				}
+				return nil
 			}
 			if tt.debug {
 				st.Tracer = func(s string) {
@@ -150,7 +151,9 @@ func BenchmarkParseAndEval(b *testing.B) {
 			return
 		}
 		st := NewEvalState()
-		st.Render = func(args *RenderArgs) {}
+		st.Render = func(e *EvalState, args *RenderArgs) error {
+			return nil
+		}
 		err = st.Eval(tokens)
 		if err != nil {
 			b.Errorf("eval error: %v", err)
@@ -181,7 +184,9 @@ func BenchmarkEval(b *testing.B) {
 	}
 	for b.Loop() {
 		st := NewEvalState()
-		st.Render = func(args *RenderArgs) {}
+		st.Render = func(e *EvalState, args *RenderArgs) error {
+			return nil
+		}
 		err = st.Eval(tokens)
 		if err != nil {
 			b.Errorf("eval error: %v", err)

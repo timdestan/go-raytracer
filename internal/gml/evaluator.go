@@ -23,7 +23,7 @@ type EvalState struct {
 	CurrToken TokenGroup // The token that is currently being evaluated
 	Stack     []Value
 	Env       map[string]Value
-	Render    func(*RenderArgs)
+	Render    func(*EvalState, *RenderArgs) error
 	// Optional for debugging, can be nil
 	Tracer func(string)
 }
@@ -221,17 +221,17 @@ func (e *EvalState) evalOneStep(token TokenGroup) error {
 	}
 	switch token := token.(type) {
 	case *IntLiteral:
-		e.push(VInt(token.Value))
+		e.Push(VInt(token.Value))
 	case *FloatLiteral:
-		e.push(VReal(token.Value))
+		e.Push(VReal(token.Value))
 	case *BoolLiteral:
-		e.push(VBool(token.Value))
+		e.Push(VBool(token.Value))
 	case *StringLiteral:
-		e.push(VString(token.Value))
+		e.Push(VString(token.Value))
 	case *Function:
-		e.push(VClosure{Code: token.Body, Env: maps.Clone(e.Env)})
+		e.Push(VClosure{Code: token.Body, Env: maps.Clone(e.Env)})
 	case *Binder:
-		v, err := e.pop()
+		v, err := e.Pop()
 		if err != nil {
 			return err
 		}
@@ -242,7 +242,7 @@ func (e *EvalState) evalOneStep(token TokenGroup) error {
 		}
 		// Else look up a variable in the environment.
 		if val, ok := e.Env[token.Name]; ok {
-			e.push(val)
+			e.Push(val)
 		} else {
 			return fmt.Errorf("%w: %s", ErrUnboundIdentifier, token.Name)
 		}
@@ -261,11 +261,11 @@ func (e *EvalState) evalOneStep(token TokenGroup) error {
 	return nil
 }
 
-func (e *EvalState) push(value Value) {
+func (e *EvalState) Push(value Value) {
 	e.Stack = append(e.Stack, value)
 }
 
-func (e *EvalState) pop() (Value, error) {
+func (e *EvalState) Pop() (Value, error) {
 	if len(e.Stack) == 0 {
 		return nil, fmt.Errorf("%w: token: %v", ErrEmptyStack, TokenGroupDebugString(e.CurrToken))
 	}
@@ -274,8 +274,8 @@ func (e *EvalState) pop() (Value, error) {
 	return val, nil
 }
 
-func popValue[T Value](e *EvalState) (T, error) {
-	v, err := e.pop()
+func PopValue[T Value](e *EvalState) (T, error) {
+	v, err := e.Pop()
 	if err != nil {
 		return *new(T), err
 	}
@@ -287,16 +287,16 @@ func popValue[T Value](e *EvalState) (T, error) {
 	return derived, nil
 }
 
-func pop3[T Value](e *EvalState) (T, T, T, error) {
+func Pop3[T Value](e *EvalState) (T, T, T, error) {
 	var x, y, z T
 	var err error
-	if z, err = popValue[T](e); err != nil {
+	if z, err = PopValue[T](e); err != nil {
 		return x, y, z, err
 	}
-	if y, err = popValue[T](e); err != nil {
+	if y, err = PopValue[T](e); err != nil {
 		return x, y, z, err
 	}
-	if x, err = popValue[T](e); err != nil {
+	if x, err = PopValue[T](e); err != nil {
 		return x, y, z, err
 	}
 	return x, y, z, nil
@@ -344,20 +344,20 @@ func init() {
 }
 
 func addi(e *EvalState) error {
-	a, err := popValue[VInt](e)
+	a, err := PopValue[VInt](e)
 	if err != nil {
 		return err
 	}
-	b, err := popValue[VInt](e)
+	b, err := PopValue[VInt](e)
 	if err != nil {
 		return err
 	}
-	e.push(a + b)
+	e.Push(a + b)
 	return nil
 }
 
 func apply(e *EvalState) error {
-	closure, err := popValue[VClosure](e)
+	closure, err := PopValue[VClosure](e)
 	if err != nil {
 		return err
 	}
@@ -368,25 +368,25 @@ func apply(e *EvalState) error {
 }
 
 func point(e *EvalState) error {
-	x, y, z, err := pop3[VReal](e)
+	x, y, z, err := Pop3[VReal](e)
 	if err != nil {
 		return err
 	}
-	e.push(Point{X: x, Y: y, Z: z})
+	e.Push(Point{X: x, Y: y, Z: z})
 	return nil
 }
 
 func pointlight(e *EvalState) error {
 	// pos color pointlight
-	color, err := popValue[Point](e)
+	color, err := PopValue[Point](e)
 	if err != nil {
 		return err
 	}
-	pos, err := popValue[Point](e)
+	pos, err := PopValue[Point](e)
 	if err != nil {
 		return err
 	}
-	e.push(&PointLight{Position: pos, Color: color})
+	e.Push(&PointLight{Position: pos, Color: color})
 	return nil
 }
 
@@ -394,11 +394,11 @@ func pointlight(e *EvalState) error {
 // with the surface function provided on the
 // top of the stack.
 func sphere(e *EvalState) error {
-	surfaceFn, err := popValue[VClosure](e)
+	surfaceFn, err := PopValue[VClosure](e)
 	if err != nil {
 		return err
 	}
-	e.push(&Sphere{
+	e.Push(&Sphere{
 		Center:    Point{X: 0, Y: 0, Z: 0},
 		Radius:    1.0,
 		SurfaceFn: surfaceFn,
@@ -407,63 +407,63 @@ func sphere(e *EvalState) error {
 }
 
 func translate(e *EvalState) error {
-	x, y, z, err := pop3[VReal](e)
+	x, y, z, err := Pop3[VReal](e)
 	if err != nil {
 		return err
 	}
-	s, err := popValue[SceneObject](e)
+	s, err := PopValue[SceneObject](e)
 	if err != nil {
 		return err
 	}
-	e.push(s.Translate(x, y, z))
+	e.Push(s.Translate(x, y, z))
 	return nil
 }
 
 func union(e *EvalState) error {
-	a, err := popValue[SceneObject](e)
+	a, err := PopValue[SceneObject](e)
 	if err != nil {
 		return err
 	}
-	b, err := popValue[SceneObject](e)
+	b, err := PopValue[SceneObject](e)
 	if err != nil {
 		return err
 	}
-	e.push(&Union{Objects: []SceneObject{a, b}})
+	e.Push(&Union{Objects: []SceneObject{a, b}})
 	return nil
 }
 
 func render(e *EvalState) error {
 	// Pop the values of RenderArgs, reverse order.
 	// amb lights obj depth fov wid ht file render
-	file, err := popValue[VString](e)
+	file, err := PopValue[VString](e)
 	if err != nil {
 		return err
 	}
-	height, err := popValue[VInt](e)
+	height, err := PopValue[VInt](e)
 	if err != nil {
 		return err
 	}
-	width, err := popValue[VInt](e)
+	width, err := PopValue[VInt](e)
 	if err != nil {
 		return err
 	}
-	fov, err := popValue[VReal](e)
+	fov, err := PopValue[VReal](e)
 	if err != nil {
 		return err
 	}
-	depth, err := popValue[VInt](e)
+	depth, err := PopValue[VInt](e)
 	if err != nil {
 		return err
 	}
-	obj, err := popValue[SceneObject](e)
+	obj, err := PopValue[SceneObject](e)
 	if err != nil {
 		return err
 	}
-	lights, err := popValue[VArray](e)
+	lights, err := PopValue[VArray](e)
 	if err != nil {
 		return err
 	}
-	amb, err := popValue[Point](e)
+	amb, err := PopValue[Point](e)
 	if err != nil {
 		return err
 	}
@@ -478,7 +478,7 @@ func render(e *EvalState) error {
 	if e.Render == nil {
 		return fmt.Errorf("render function not set")
 	}
-	e.Render(&RenderArgs{
+	return e.Render(e, &RenderArgs{
 		Width:        int(width),
 		Height:       int(height),
 		File:         string(file),
@@ -488,6 +488,4 @@ func render(e *EvalState) error {
 		AmbientLight: &amb,
 		Lights:       lightValues,
 	})
-	return nil
-
 }

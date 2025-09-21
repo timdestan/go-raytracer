@@ -1,8 +1,8 @@
 raytracer
 *.test
 
-# Should probably put this in an output dir or something.
-example*.png
+# Temporary directory for holding outputs
+output/*
 
 # profiler output
 *.prof
