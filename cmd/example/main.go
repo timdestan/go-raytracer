@@ -46,7 +46,7 @@ func renderFromGMLFile(filename string) (image.Image, error) {
 func main() {
 	flag.Parse()
 	if len(*outFile) == 0 {
-		log.Fatal("--filename is required")
+		log.Fatal("--out_file is required")
 	}
 
 	var img image.Image

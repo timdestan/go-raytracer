@@ -139,13 +139,70 @@ type Material struct {
 	Fuzziness       float64 // For fuzzy reflections (0 = no fuzz, 1 = max fuzz)
 	Transparency    float64 // 0.0 (opaque) to 1.0 (fully transparent)
 	RefractiveIndex float64 // For transparent materials (1.0 = air, 1.5 = glass)
-	AbsorptionColor Vec3    // Beer’s law tint (optional, only for transmissive)
+}
+
+type Hit struct {
+	Object   SceneObject
+	T        float64
+	Point    *Vec3
+	Normal   *Vec3
+	Material *Material
+}
+
+type SceneObject interface {
+	Intersect(ray *Ray) *Hit
 }
 
 type Sphere struct {
 	Center   Vec3
 	Radius   float64
 	Material Material
+}
+
+func (sphere *Sphere) Intersect(ray *Ray) *Hit {
+	L := sphere.Center.Sub(ray.Origin)
+	t_ca := L.Dot(ray.Direction)
+	if t_ca < 0.0 {
+		// Center of the sphere is behind the screen.
+		return nil
+	}
+	t_hc := math.Sqrt(square(sphere.Radius) - (L.Dot(L) - square(t_ca)))
+	t0 := t_ca - t_hc
+	if t0 > 0.0 {
+		hitPoint := ray.Origin.Add(ray.Direction.Scale(t0))
+		return &Hit{
+			Object:   sphere,
+			T:        t0,
+			Point:    hitPoint,
+			Normal:   hitPoint.Sub(&sphere.Center).Normalize(),
+			Material: &sphere.Material,
+		}
+	}
+	// TODO: Should we include these far hits?
+	// t1 := t_ca + t_hc
+	// if t1 > 0.0 {
+	// 	return t1, true
+	// }
+	return nil
+}
+
+func (s *Sphere) SurfaceMaterial() *Material {
+
+	// TODO: Sphere surface function in GML
+
+	// (0, u, v)
+
+	// x = sqrt(1 - y^2)sin(2*pi u)
+	// y,
+	// z = sqrt(1 - y^2)cos(2*pi u)
+	// where y = 2 v - 1
+
+	// y = 2 v - 1
+
+	// v = (y + 1.0) / 2.0
+	// u = acos (z / sqrt (1.0 - y * y)) / (2.0 * PI);
+
+	return &s.Material
 }
 
 func (v *Sphere) String() string {
@@ -165,31 +222,11 @@ func (l *Light) String() string {
 	return fmt.Sprintf("Light(Position: %v, Color: %v)", l.Position, l.Color)
 }
 
-func intersectSphere(sphere *Sphere, ray *Ray) (float64, bool) {
-	L := sphere.Center.Sub(ray.Origin)
-	t_ca := L.Dot(ray.Direction)
-	if t_ca < 0.0 {
-		// Center of the sphere is behind the screen.
-		return 0.0, false
-	}
-	t_hc := math.Sqrt(square(sphere.Radius) - (L.Dot(L) - square(t_ca)))
-	t0 := t_ca - t_hc
-	if t0 > 0.0 {
-		return t0, true
-	}
-	// TODO: Should we include these far hits?
-	// t1 := t_ca + t_hc
-	// if t1 > 0.0 {
-	// 	return t1, true
-	// }
-	return 0.0, false
-}
-
 func computeLighting(hit *Hit, scene *Scene, ray *Ray) *Vec3 {
 	V := ray.Direction.Neg() // view vector = opposite of ray
 
 	const ambientTerm = 0.1 // Constant ambient term
-	mat := &hit.Sphere.Material
+	mat := hit.Material
 	result := mat.Color.Scale(ambientTerm)
 
 	for _, light := range scene.Lights {
@@ -228,16 +265,16 @@ func inShadow(hit *Hit, scene *Scene, lightDir *Vec3, distToLight float64, ray *
 	const epsilon = 1e-4
 	shadowOrigin := hit.Point.Add(hit.Normal.Scale(epsilon))
 	shadowRay := &Ray{Origin: shadowOrigin, Direction: lightDir}
-	for _, s := range scene.Spheres {
-		if s == hit.Sphere {
+	for _, obj := range scene.Objects {
+		if obj == hit.Object {
 			continue
 		}
-		t, ok := intersectSphere(s, shadowRay)
-		if !ok {
+		shadowHit := obj.Intersect(shadowRay)
+		if shadowHit == nil {
 			continue
 		}
 		// Check if the intersection is between the hit point and the light.
-		if t*ray.Direction.Length() < distToLight {
+		if shadowHit.T*ray.Direction.Length() < distToLight {
 			return true
 		}
 	}
@@ -286,19 +323,18 @@ func clamp(min, max, x float64) float64 {
 	return math.Min(math.Max(x, min), max)
 }
 
-func applyBeersLaw(color *Vec3, absorptionColor *Vec3, distance float64) *Vec3 {
-	return &Vec3{
-		X: color.X * math.Exp(-absorptionColor.X*distance),
-		Y: color.Y * math.Exp(-absorptionColor.Y*distance),
-		Z: color.Z * math.Exp(-absorptionColor.Z*distance),
+func closestHit(scene *Scene, ray *Ray) *Hit {
+	var minHit *Hit
+	for _, obj := range scene.Objects {
+		hit := obj.Intersect(ray)
+		if hit == nil {
+			continue
+		}
+		if minHit == nil || hit.T < minHit.T {
+			minHit = hit
+		}
 	}
-}
-
-type Hit struct {
-	Sphere *Sphere
-	T      float64
-	Point  *Vec3
-	Normal *Vec3
+	return minHit
 }
 
 // traceRay returns the color of the closest sphere hit by the ray, or nil
@@ -308,35 +344,16 @@ func traceRay(scene *Scene, ray *Ray, depth int) *Vec3 {
 		// Recursion limit
 		return &Vec3{}
 	}
-
-	minT := math.MaxFloat64
-	var hitSphere *Sphere
-	for _, sphere := range scene.Spheres {
-		t, ok := intersectSphere(sphere, ray)
-		if !ok {
-			continue
-		}
-		if t < minT {
-			minT = t
-			hitSphere = sphere
-		}
-	}
-	if hitSphere == nil {
+	hit := closestHit(scene, ray)
+	if hit == nil {
 		// Calculate background color (linear gradient).
 		t := 0.5 * (ray.Direction.Y + 1.0)
 		return scene.BgColorStart.LerpI(&scene.BgColorEnd, t)
 	}
-	hit := &Hit{
-		Sphere: hitSphere,
-		T:      minT,
-		Point:  ray.Origin.Add(ray.Direction.Scale(minT)),
-		Normal: nil,
-	}
-	hit.Normal = hit.Point.Sub(&hit.Sphere.Center).Normalize()
 
 	surfaceColor := computeLighting(hit, scene, ray)
 
-	mat := &hit.Sphere.Material
+	mat := hit.Material
 	if mat.Reflectivity == 0 && mat.Transparency == 0 {
 		return surfaceColor.ClampI()
 	}
@@ -349,7 +366,10 @@ func traceRay(scene *Scene, ray *Ray, depth int) *Vec3 {
 		reflectedDir := ray.Direction.Sub(hit.Normal.Scale(2.0 * ray.Direction.Dot(hit.Normal)))
 		// "random" vector
 		randomVector := Vec3{math.Cos(fuzz) * math.Cos(fuzz), math.Sin(fuzz) * math.Sin(fuzz), 0}
-		reflectionRay := Ray{Origin: hit.Point.Add(hit.Normal.Scale(1e-4)), Direction: reflectedDir.Add(randomVector.Scale(fuzz)).Normalize()}
+		reflectionRay := Ray{
+			Origin:    hit.Point.Add(hit.Normal.Scale(1e-4)),
+			Direction: reflectedDir.Add(randomVector.Scale(fuzz)).Normalize(),
+		}
 		reflectedColor = traceRay(scene, &reflectionRay, depth-1)
 	}
 
@@ -394,7 +414,7 @@ type Scene struct {
 	// Z=-CameraDistance with both Y and Z going from -0.5 to 0.5.
 	CameraDistance float64
 
-	Spheres []*Sphere
+	Objects []SceneObject
 	Lights  []*Light
 
 	// BgColorStart and BgColorEnd define the 2 ends of the gradient
@@ -447,7 +467,20 @@ func ParseAndRenderGML(programText string) (image.Image, error) {
 		return nil, err
 	}
 	state := gml.NewEvalState()
-	state.Render = func(args *gml.RenderArgs) {}
+	state.Render = func(args *gml.RenderArgs) {
+		// Create a scene object from the render args.
+
+		// 	scene := &Scene{
+		// 		WidthPx:  args.Width,
+		// 		HeightPx: args.Height,
+		// 		// BgColorStart:  args.BackgroundColorStart,
+		// 		// BgColorEnd:    args.BackgroundColorEnd,
+		// 		Spheres:        args.Spheres,
+		// 		Lights:         args.Lights,
+		// 		CameraDistance: 4.0,
+		// 	}
+
+	}
 
 	err = state.Eval(token)
 	if err != nil {
