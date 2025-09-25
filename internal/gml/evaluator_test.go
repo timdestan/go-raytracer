@@ -1,8 +1,6 @@
 package gml
 
 import (
-	"fmt"
-	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -114,12 +112,7 @@ func TestSingleRender(t *testing.T) {
 				}
 				return nil
 			}
-			if tt.debug {
-				st.Tracer = func(s string) {
-					fmt.Print(s)
-				}
-				printInBox(tt.name)
-			}
+			st.Debug = tt.debug
 			err = st.Eval(tokens)
 			if err != nil {
 				t.Errorf("eval error: %v", err)
@@ -131,12 +124,6 @@ func TestSingleRender(t *testing.T) {
 			}
 		})
 	}
-}
-
-func printInBox(msg string) {
-	msg = fmt.Sprintf("**  %s  **", msg)
-	rowOfStars := strings.Repeat("*", len(msg))
-	fmt.Printf("%s\n%s\n%s\n", rowOfStars, msg, rowOfStars)
 }
 
 // Run benchmarks with:

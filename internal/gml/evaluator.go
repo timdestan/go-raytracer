@@ -24,8 +24,7 @@ type EvalState struct {
 	Stack     []Value
 	Env       map[string]Value
 	Render    func(*EvalState, *RenderArgs) error
-	// Optional for debugging, can be nil
-	Tracer func(string)
+	Debug     bool
 }
 
 type Value interface {
@@ -188,12 +187,6 @@ func NewEvalState() *EvalState {
 	}
 }
 
-func (e *EvalState) tracef(format string, args ...any) {
-	if e.Tracer != nil {
-		e.Tracer(fmt.Sprintf(format, args...))
-	}
-}
-
 var ErrEmptyStack = errors.New("empty stack")
 var ErrUnboundIdentifier = errors.New("unbound identifier")
 
@@ -208,15 +201,15 @@ func (e *EvalState) Eval(program TokenList) error {
 
 func (e *EvalState) evalOneStep(token TokenGroup) error {
 	e.CurrToken = token
-	if e.Tracer != nil {
-		e.tracef("==============================\n")
-		e.tracef("step: %v\nstack:\n", TokenGroupDebugString(token))
+	if e.Debug {
+		fmt.Printf("==============================\n")
+		fmt.Printf("step: %v\nstack:\n", TokenGroupDebugString(token))
 		for i, v := range e.Stack {
-			e.tracef("  %d: %v\n", i, v)
+			fmt.Printf("  %d: %v\n", i, v)
 		}
-		e.tracef("env:\n")
+		fmt.Printf("env:\n")
 		for k, v := range e.Env {
-			e.tracef("  %s: %v\n", k, v)
+			fmt.Printf("  %s: %v\n", k, v)
 		}
 	}
 	switch token := token.(type) {
