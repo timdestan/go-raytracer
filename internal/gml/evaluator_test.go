@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/google/go-cmp/cmp/cmpopts"
 )
 
 // TestSimpleEval tests some simple cases with no render call.
@@ -54,8 +53,6 @@ func TestSimpleEval(t *testing.T) {
 	}
 }
 
-var ignoreSurfaceFn = cmpopts.IgnoreFields(Sphere{}, "SurfaceFn")
-
 // TestSingleRender tests programs where we expect exactly one call to render.
 func TestSingleRender(t *testing.T) {
 	type testCase struct {
@@ -81,10 +78,18 @@ func TestSingleRender(t *testing.T) {
 						&Sphere{
 							Center: Point{X: 1.2, Y: 1.0, Z: 3.0},
 							Radius: 1.0,
+							SurfaceFn: VClosure{
+								Code: tokens(binder("v"), binder("u"), binder("face"), 0.8, 0.2, sym("v"), sym("point"), 1.0, 0.2, 1.0),
+								Env:  map[string]Value{},
+							},
 						},
 						&Sphere{
 							Center: Point{X: -1.2, Y: 0.0, Z: 3.0},
 							Radius: 1.0,
+							SurfaceFn: VClosure{
+								Code: tokens(binder("v"), binder("u"), binder("face"), 0.8, 0.2, sym("v"), sym("point"), 1.0, 0.2, 1.0),
+								Env:  map[string]Value{},
+							},
 						},
 					},
 				},
@@ -119,7 +124,7 @@ func TestSingleRender(t *testing.T) {
 				return
 			}
 
-			if diff := cmp.Diff(got, tt.wantRenderArgs, ignoreSurfaceFn); diff != "" {
+			if diff := cmp.Diff(got, tt.wantRenderArgs); diff != "" {
 				t.Errorf("Eval() mismatch (-got +want):\n%s", diff)
 			}
 		})
