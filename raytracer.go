@@ -8,125 +8,12 @@ import (
 	"math/rand"
 
 	"github.com/timdestan/go-raytracer/internal/gml"
+	"github.com/timdestan/go-raytracer/internal/prim"
 )
 
-type Vec3 struct {
-	X, Y, Z float64
-}
-
-func (v *Vec3) String() string {
-	return fmt.Sprintf("Vec3(%.4f, %.4f, %.4f)", v.X, v.Y, v.Z)
-}
-
-// RGB is a convenience function to construct a vector
-// from normalized RGB values [0.0, 1.0].
-func RGB(r, g, b float64) Vec3 {
-	return Vec3{X: r, Y: g, Z: b}
-}
-
-func (v *Vec3) Add(other *Vec3) *Vec3 {
-	return &Vec3{
-		X: v.X + other.X,
-		Y: v.Y + other.Y,
-		Z: v.Z + other.Z,
-	}
-}
-
-// AddI is an in-place version of Add
-func (v *Vec3) AddI(other *Vec3) *Vec3 {
-	v.X += other.X
-	v.Y += other.Y
-	v.Z += other.Z
-	return v
-}
-
-func (v *Vec3) Sub(other *Vec3) *Vec3 {
-	return &Vec3{
-		X: v.X - other.X,
-		Y: v.Y - other.Y,
-		Z: v.Z - other.Z,
-	}
-}
-
-// Mul multiples two vectors pointwise.
-func (v *Vec3) Mul(other *Vec3) *Vec3 {
-	return &Vec3{
-		X: v.X * other.X,
-		Y: v.Y * other.Y,
-		Z: v.Z * other.Z,
-	}
-}
-
-func (v *Vec3) Dot(other *Vec3) float64 {
-	return v.X*other.X + v.Y*other.Y + v.Z*other.Z
-}
-
-func (v *Vec3) CosineSimilarity(other *Vec3) float64 {
-	return v.Dot(other) / (v.Length() * other.Length())
-}
-
-func (v *Vec3) LerpI(other *Vec3, t float64) *Vec3 {
-	v.X += (other.X - v.X) * t
-	v.Y += (other.Y - v.Y) * t
-	v.Z += (other.Z - v.Z) * t
-	return v
-}
-
-func (v *Vec3) Scale(s float64) *Vec3 {
-	return &Vec3{
-		X: v.X * s,
-		Y: v.Y * s,
-		Z: v.Z * s,
-	}
-}
-
-func (v *Vec3) Normalize() *Vec3 {
-	magnitude := math.Sqrt(v.X*v.X + v.Y*v.Y + v.Z*v.Z)
-	return &Vec3{
-		X: v.X / magnitude,
-		Y: v.Y / magnitude,
-		Z: v.Z / magnitude,
-	}
-}
-
-func (v *Vec3) Neg() *Vec3 {
-	return &Vec3{
-		X: -v.X,
-		Y: -v.Y,
-		Z: -v.Z,
-	}
-}
-
-func (v *Vec3) Length() float64 {
-	return math.Sqrt(v.X*v.X + v.Y*v.Y + v.Z*v.Z)
-}
-
-func (v *Vec3) IsZero() bool {
-	return v.X == 0.0 && v.Y == 0.0 && v.Z == 0.0
-}
-
-// RGBA implements the image.Color interface
-func (v *Vec3) RGBA() (r, g, b, a uint32) {
-	const max = 0xffff
-	return uint32(v.X * max), uint32(v.Y * max), uint32(v.Z * max), max
-}
-
-// ClampI clamps the X, Y, and Z values between 0 and 1, in place.
-func (c *Vec3) ClampI() *Vec3 {
-	c.X = clamp(0, 1, c.X)
-	c.Y = clamp(0, 1, c.Y)
-	c.Z = clamp(0, 1, c.Z)
-	return c
-}
-
-// Reflect reflects this vector around the given axis vector.
-func (c *Vec3) Reflect(axis *Vec3) *Vec3 {
-	return axis.Scale(2 * axis.Dot(c)).Sub(c)
-}
-
 type Ray struct {
-	Origin    *Vec3
-	Direction *Vec3
+	Origin    *prim.Vec3
+	Direction *prim.Vec3
 }
 
 func (r *Ray) String() string {
@@ -134,7 +21,7 @@ func (r *Ray) String() string {
 }
 
 type Material struct {
-	Color           Vec3
+	Color           prim.Vec3
 	Reflectivity    float64 // 0 for diffuse, 1 for perfect mirror reflection
 	Fuzziness       float64 // For fuzzy reflections (0 = no fuzz, 1 = max fuzz)
 	Transparency    float64 // 0.0 (opaque) to 1.0 (fully transparent)
@@ -149,8 +36,8 @@ type Material struct {
 type Hit struct {
 	Object   SceneObject
 	T        float64
-	Point    *Vec3
-	Normal   *Vec3
+	Point    *prim.Vec3
+	Normal   *prim.Vec3
 	Material *Material
 }
 
@@ -159,7 +46,7 @@ type SceneObject interface {
 }
 
 type Sphere struct {
-	Center    Vec3
+	Center    prim.Vec3
 	Radius    float64
 	Material  Material
 	SurfaceFn *gml.VClosure
@@ -199,7 +86,7 @@ func (sphere *Sphere) Intersect(ray *Ray) *Hit {
 	return nil
 }
 
-func computeSphereSurface(sphere *Sphere, point *Vec3) (*Material, error) {
+func computeSphereSurface(sphere *Sphere, point *prim.Vec3) (*Material, error) {
 	if sphere.SurfaceFn == nil {
 		return &sphere.Material, nil
 	}
@@ -267,17 +154,15 @@ func (v *Sphere) String() string {
 
 // Light represents a point light source.
 type Light struct {
-	Position Vec3
-	Color    Vec3
+	Position prim.Vec3
+	Color    prim.Vec3
 }
-
-var Magenta = RGB(1, 0, 1)
 
 func (l *Light) String() string {
 	return fmt.Sprintf("Light(Position: %v, Color: %v)", l.Position, l.Color)
 }
 
-func computeLighting(hit *Hit, scene *Scene, ray *Ray) *Vec3 {
+func computeLighting(hit *Hit, scene *Scene, ray *Ray) *prim.Vec3 {
 	V := ray.Direction.Neg() // view vector = opposite of ray
 
 	mat := hit.Material
@@ -315,7 +200,7 @@ func computeLighting(hit *Hit, scene *Scene, ray *Ray) *Vec3 {
 // the intersection with the current sphere is not counted.
 //
 // lightDir is assumed to be a normal vector.
-func inShadow(hit *Hit, scene *Scene, lightDir *Vec3, distToLight float64, ray *Ray) bool {
+func inShadow(hit *Hit, scene *Scene, lightDir *prim.Vec3, distToLight float64, ray *Ray) bool {
 	const epsilon = 1e-4
 	shadowOrigin := hit.Point.Add(hit.Normal.Scale(epsilon))
 	shadowRay := &Ray{Origin: shadowOrigin, Direction: lightDir}
@@ -341,7 +226,7 @@ func inShadow(hit *Hit, scene *Scene, lightDir *Vec3, distToLight float64, ray *
 // `n1` is the refractive index of the medium the ray is leaving.
 // `n2` is the refractive index of the medium the ray is entering.
 // The function returns the refracted direction or nil if no refraction occurs.
-func refract(incident, normal *Vec3, n1, n2 float64) *Vec3 {
+func refract(incident, normal *prim.Vec3, n1, n2 float64) *prim.Vec3 {
 	ratio := n1 / n2
 	cosI := -normal.Dot(incident)
 	sinT2 := ratio * ratio * (1.0 - cosI*cosI)
@@ -359,7 +244,7 @@ func refract(incident, normal *Vec3, n1, n2 float64) *Vec3 {
 // normal: surface normal (unit vector)
 // incident: incoming ray direction (unit vector, pointing INTO the surface)
 // ior: index of refraction of the material
-func fresnel(normal, incident *Vec3, ior float64) float64 {
+func fresnel(normal, incident *prim.Vec3, ior float64) float64 {
 	// cosi := clamp(-1, 1, incident.Dot(normal))
 	cosi := incident.CosineSimilarity(normal)
 	etai, etat := 1.0, ior // assume ray is coming from air (n=1)
@@ -370,11 +255,6 @@ func fresnel(normal, incident *Vec3, ior float64) float64 {
 
 	cost := math.Abs(cosi)
 	return r0 + (1-r0)*math.Pow(1-cost, 5) // Schlick's approximation
-}
-
-// clamp limits x between min and max
-func clamp(min, max, x float64) float64 {
-	return math.Min(math.Max(x, min), max)
 }
 
 func closestHit(scene *Scene, ray *Ray) *Hit {
@@ -393,10 +273,10 @@ func closestHit(scene *Scene, ray *Ray) *Hit {
 
 // traceRay returns the color of the closest sphere hit by the ray, or nil
 // if no sphere is hit.
-func traceRay(scene *Scene, ray *Ray, depth int) *Vec3 {
+func traceRay(scene *Scene, ray *Ray, depth int) *prim.Vec3 {
 	if depth <= 0 {
 		// Recursion limit
-		return &Vec3{}
+		return &prim.Vec3{}
 	}
 	hit := closestHit(scene, ray)
 	if hit == nil {
@@ -413,13 +293,13 @@ func traceRay(scene *Scene, ray *Ray, depth int) *Vec3 {
 	}
 
 	// Handle reflection and transparency based on material properties
-	reflectedColor := &Vec3{}
+	reflectedColor := &prim.Vec3{}
 	if mat.Reflectivity > 0 {
 		// For fuzzy reflections, add a random component to the reflection direction.
 		fuzz := mat.Fuzziness
 		reflectedDir := ray.Direction.Sub(hit.Normal.Scale(2.0 * ray.Direction.Dot(hit.Normal)))
 		// "random" vector
-		randomVector := Vec3{math.Cos(fuzz) * math.Cos(fuzz), math.Sin(fuzz) * math.Sin(fuzz), 0}
+		randomVector := prim.Vec3{math.Cos(fuzz) * math.Cos(fuzz), math.Sin(fuzz) * math.Sin(fuzz), 0}
 		reflectionRay := Ray{
 			Origin:    hit.Point.Add(hit.Normal.Scale(1e-4)),
 			Direction: reflectedDir.Add(randomVector.Scale(fuzz)).Normalize(),
@@ -427,7 +307,7 @@ func traceRay(scene *Scene, ray *Ray, depth int) *Vec3 {
 		reflectedColor = traceRay(scene, &reflectionRay, depth-1)
 	}
 
-	refractedColor := &Vec3{}
+	refractedColor := &prim.Vec3{}
 	if mat.Transparency > 0 {
 		// This assumes the outer medium is air.
 		n1 := 1.0
@@ -472,11 +352,11 @@ type Scene struct {
 	Objects []SceneObject
 	Lights  []*Light
 
-	AmbientLight Vec3
+	AmbientLight prim.Vec3
 
 	// BgColorStart and BgColorEnd define the 2 ends of the gradient
 	// background color.
-	BgColorStart, BgColorEnd Vec3
+	BgColorStart, BgColorEnd prim.Vec3
 }
 
 func Render(scene *Scene) image.Image {
@@ -497,7 +377,7 @@ func Render(scene *Scene) image.Image {
 	viewportHeight := viewportWidth * (float64(scene.HeightPx) / float64(scene.WidthPx))
 	fmt.Printf("viewport size: %f x %f\n", viewportWidth, viewportHeight)
 
-	eyePosition := &Vec3{
+	eyePosition := &prim.Vec3{
 		X: 0.0,
 		Y: 0.0,
 		Z: -1.0,
@@ -506,7 +386,7 @@ func Render(scene *Scene) image.Image {
 	for x := range scene.WidthPx {
 		for y := range scene.HeightPx {
 			// Subsample for antialiasing
-			totalColor := &Vec3{}
+			totalColor := &prim.Vec3{}
 			const numSamples = 4
 			for range numSamples {
 				// Map pixel coordinates to world coordinates.
@@ -514,7 +394,7 @@ func Render(scene *Scene) image.Image {
 				dv := rand.Float64() - 0.5
 				u := (float64(x)+du)/float64(scene.WidthPx-1)*viewportWidth - viewportWidth/2.0
 				v := (float64(y)+dv)/float64(scene.HeightPx-1)*viewportHeight - viewportHeight/2.0
-				screenPoint := &Vec3{
+				screenPoint := &prim.Vec3{
 					X: u,
 					Y: -v,
 					Z: 0.0,
@@ -610,8 +490,8 @@ func convertGMLLights(lights []*gml.PointLight) []*Light {
 	return result
 }
 
-func pointToVec3(point gml.Point) Vec3 {
-	return Vec3{
+func pointToVec3(point gml.Point) prim.Vec3 {
+	return prim.Vec3{
 		X: float64(point.X),
 		Y: float64(point.Y),
 		Z: float64(point.Z),

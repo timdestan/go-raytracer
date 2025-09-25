@@ -1,5 +1,7 @@
 package raytracer
 
+import "github.com/timdestan/go-raytracer/internal/prim"
+
 func ExampleCannedScene(width, height int) *Scene {
 	return &Scene{
 		WidthPx:  width,
@@ -7,44 +9,44 @@ func ExampleCannedScene(width, height int) *Scene {
 		Fov:      120.0,
 		Objects: []SceneObject{
 			// Glass sphere with metallic sheen
-			&Sphere{Center: Vec3{X: 0, Y: 0, Z: 5},
+			&Sphere{Center: prim.Vec3{X: 0, Y: 0, Z: 5},
 				Radius: 1.0,
 				Material: Material{
-					Color:            RGB(0.8, 0.2, 0.2),
+					Color:            prim.RGB(0.8, 0.2, 0.2),
 					Ks:               0.8,
 					Kd:               1.0,
 					SpecularExponent: 50.0,
 					Transparency:     0.9,
 					RefractiveIndex:  1.5}},
 			// Dull, fuzzy surface with some reflection
-			&Sphere{Center: Vec3{X: 2, Y: 0, Z: 8},
+			&Sphere{Center: prim.Vec3{X: 2, Y: 0, Z: 8},
 				Radius: 1.0,
 				Material: Material{
-					Color:        RGB(0.2, 0.2, 0.8),
+					Color:        prim.RGB(0.2, 0.2, 0.8),
 					Kd:           1.0,
 					Reflectivity: 0.2,
 					Fuzziness:    0.5}},
 			// Original reflective green sphere
-			&Sphere{Center: Vec3{X: -2, Y: 0, Z: 6},
+			&Sphere{Center: prim.Vec3{X: -2, Y: 0, Z: 6},
 				Radius: 1.0,
 				Material: Material{
-					Color:        RGB(0.2, 0.8, 0.2),
+					Color:        prim.RGB(0.2, 0.8, 0.2),
 					Kd:           1.0,
 					Reflectivity: 0.8,
 				}},
 			// Ground plane
-			&Sphere{Center: Vec3{X: 0, Y: -1001, Z: 5},
+			&Sphere{Center: prim.Vec3{X: 0, Y: -1001, Z: 5},
 				Radius: 1000.0,
 				Material: Material{
-					Color: RGB(0.8, 0.8, 0.8),
+					Color: prim.RGB(0.8, 0.8, 0.8),
 					Kd:    1.0,
 				}},
 		},
 		Lights: []*Light{
-			{Position: Vec3{X: 5, Y: 5, Z: 0}, Color: RGB(1, 1, 1)},
+			{Position: prim.Vec3{X: 5, Y: 5, Z: 0}, Color: prim.RGB(1, 1, 1)},
 		},
-		AmbientLight: Vec3{X: 0.1, Y: 0.1, Z: 0.1},
-		BgColorStart: Vec3{X: 0.0, Y: 0.0, Z: 0.0},
-		BgColorEnd:   Vec3{X: 0.5, Y: 0.7, Z: 1.0},
+		AmbientLight: prim.Vec3{X: 0.1, Y: 0.1, Z: 0.1},
+		BgColorStart: prim.Vec3{X: 0.0, Y: 0.0, Z: 0.0},
+		BgColorEnd:   prim.Vec3{X: 0.5, Y: 0.7, Z: 1.0},
 	}
 }
