@@ -2,12 +2,10 @@ package raytracer
 
 import (
 	"bytes"
-	"fmt"
 	"image"
 	"image/png"
 	"testing"
 
-	"github.com/google/go-cmp/cmp"
 	"github.com/timdestan/go-raytracer/internal/gml"
 	"github.com/timdestan/go-raytracer/internal/prim"
 
@@ -17,37 +15,13 @@ import (
 func compareImages(t *testing.T, got, want image.Image) {
 	t.Helper()
 
-	if diff := cmp.Diff(got.Bounds(), want.Bounds()); diff != "" {
-		t.Errorf("Render() bounds mismatch (-got +want):\n%s", diff)
+	const minSSIM = 0.95
+	ssim, err := prim.SSIM(got, want)
+	if err != nil {
+		t.Fatalf("Error in SSIM computation: %v", err)
 	}
-	bounds := want.Bounds()
-
-	// TODO: This sucks. I'm sure there's a better way to do this.
-	const minCosineSimilarity = 0.75
-	var diffs []string
-	for x := bounds.Min.X; x < bounds.Max.X; x++ {
-		for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
-			gotR, gotG, gotB, _ := got.At(x, y).RGBA()
-			wantR, wantG, wantB, _ := want.At(x, y).RGBA()
-			gotVec := prim.Vec3{X: float64(gotR), Y: float64(gotG), Z: float64(gotB)}
-			wantVec := prim.Vec3{X: float64(wantR), Y: float64(wantG), Z: float64(wantB)}
-			similarity := gotVec.CosineSimilarity(&wantVec)
-			if similarity < minCosineSimilarity {
-				diffs = append(diffs, fmt.Sprintf("pixel (%d, %d): got %v, want %v (similarity = %v)", x, y, gotVec, wantVec, similarity))
-			}
-		}
-	}
-	if len(diffs) == 0 {
-		return
-	}
-	totalDiffs := len(diffs)
-	if len(diffs) > 10 {
-		// Just show a few.
-		diffs = diffs[:10]
-	}
-	t.Errorf("Render() mismatch: %d / %d diffs", totalDiffs, (bounds.Max.X-bounds.Min.X)*(bounds.Max.Y-bounds.Min.Y))
-	for _, diff := range diffs {
-		t.Errorf("  Diff: %s", diff)
+	if ssim < minSSIM {
+		t.Errorf("SSIM is %f, want >= %f", ssim, minSSIM)
 	}
 }
 
