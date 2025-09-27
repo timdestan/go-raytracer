@@ -4,6 +4,7 @@ import (
 	"errors"
 	"image"
 	"math/rand"
+	"sync"
 )
 
 const (
@@ -35,12 +36,41 @@ func SSIM(img1, img2 image.Image) (float64, error) {
 
 	n := 0
 	sum := 0.0
-	for x := 0; x < len(rgbImg1)-kernelSize; x++ {
-		for y := 0; y < len(rgbImg1[x])-kernelSize; y++ {
-			sum += computeSSIMOnWindow(rgbImg1, rgbImg2, x, y, kernel)
-			n++
-		}
+
+	type workitem struct {
+		ssim float64
+		n    int
 	}
+
+	ch := make(chan workitem)
+
+	go func() {
+		defer close(ch)
+		var wg sync.WaitGroup
+		for x := 0; x < len(rgbImg1)-kernelSize; x++ {
+			wg.Add(1)
+			go func() {
+				sum := 0.0
+				n := 0
+				for y := 0; y < len(rgbImg1[x])-kernelSize; y++ {
+					sum += computeSSIMOnWindow(rgbImg1, rgbImg2, x, y, kernel)
+					n++
+				}
+				ch <- workitem{
+					ssim: sum,
+					n:    n,
+				}
+				wg.Done()
+			}()
+		}
+		wg.Wait()
+	}()
+
+	for item := range ch {
+		sum += item.ssim
+		n += item.n
+	}
+
 	return sum / float64(n), nil
 }
 
