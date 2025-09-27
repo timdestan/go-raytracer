@@ -373,9 +373,7 @@ func Render(scene *Scene) image.Image {
 	}
 	fovRadians := scene.Fov * math.Pi / 180.0
 	viewportWidth := 2.0 / math.Tan(fovRadians/2.0)
-
 	viewportHeight := viewportWidth * (float64(scene.HeightPx) / float64(scene.WidthPx))
-	fmt.Printf("viewport size: %f x %f\n", viewportWidth, viewportHeight)
 
 	eyePosition := &prim.Vec3{
 		X: 0.0,
@@ -419,29 +417,13 @@ func ParseAndRenderGML(programText string) (image.Image, error) {
 	}
 	state := gml.NewEvalState()
 
-	// TODO: At the moment we ignore any filename requested and always write
-	// to one image. All example programs at the moment only render once.
-	var renderedImage image.Image
+	images := make(map[string]image.Image)
 	state.Render = func(state *gml.EvalState, args *gml.RenderArgs) error {
-		// Create a scene object from the render args.
-
-		convertedObjects, err := convertGMLSceneObjects([]gml.SceneObject{args.Scene}, state)
+		scene, err := ConvertRenderArgsToScene(args, state)
 		if err != nil {
 			return err
 		}
-		scene := &Scene{
-			WidthPx:  args.Width,
-			HeightPx: args.Height,
-
-			Fov:            args.Fov,
-			RecursionDepth: args.Depth,
-
-			Objects: convertedObjects,
-			Lights:  convertGMLLights(args.Lights),
-
-			AmbientLight: pointToVec3(*args.AmbientLight),
-		}
-		renderedImage = Render(scene)
+		images[args.File] = Render(scene)
 		return nil
 	}
 
@@ -449,10 +431,31 @@ func ParseAndRenderGML(programText string) (image.Image, error) {
 	if err != nil {
 		return nil, err
 	}
-	if renderedImage == nil || renderedImage.Bounds().Empty() {
-		return nil, errors.New("no image was rendered by the GML program")
+	if len(images) > 1 {
+		// We would easily support this if we wanted to.
+		return nil, errors.New("multiple images were rendered by the GML program")
 	}
-	return renderedImage, nil
+	// Return first (only) image.
+	for _, img := range images {
+		return img, nil
+	}
+	return nil, errors.New("no image was rendered by the GML program")
+}
+
+func ConvertRenderArgsToScene(args *gml.RenderArgs, state *gml.EvalState) (*Scene, error) {
+	convertedObjects, err := convertGMLSceneObjects([]gml.SceneObject{args.Scene}, state)
+	if err != nil {
+		return nil, err
+	}
+	return &Scene{
+		WidthPx:        args.Width,
+		HeightPx:       args.Height,
+		Fov:            args.Fov,
+		RecursionDepth: args.Depth,
+		Objects:        convertedObjects,
+		Lights:         convertGMLLights(args.Lights),
+		AmbientLight:   pointToVec3(*args.AmbientLight),
+	}, nil
 }
 
 func convertGMLSceneObjects(sceneObjects []gml.SceneObject, evalState *gml.EvalState) ([]SceneObject, error) {

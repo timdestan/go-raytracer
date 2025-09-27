@@ -5,6 +5,8 @@ package main
 import (
 	"errors"
 	"fmt"
+	"image"
+	"image/png"
 	"io"
 	"log"
 	"os"
@@ -12,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/ergochat/readline"
+	"github.com/timdestan/go-raytracer"
 	"github.com/timdestan/go-raytracer/internal/gml"
 )
 
@@ -45,10 +48,16 @@ func main() {
 		log.Fatalf("readline init error: %v", err)
 	}
 
+	images := make(map[string]image.Image)
+
 	evalState := gml.NewEvalState()
 	evalState.Render = func(e *gml.EvalState, args *gml.RenderArgs) error {
-		// TODO: Actually render.
-		fmt.Printf("render: %v\n", args)
+		scene, err := raytracer.ConvertRenderArgsToScene(args, e)
+		if err != nil {
+			return err
+		}
+		images[args.File] = raytracer.Render(scene)
+		fmt.Printf("Rendered image with name %s\n", args.File)
 		return nil
 	}
 
@@ -87,7 +96,6 @@ func main() {
 	})
 	registerCommand(&Command{
 		Symbol:   ":env",
-		Aliases:  []string{":e"},
 		HelpText: "Print the current environment",
 		Run: func(st *State) error {
 			fmt.Printf("env:\n")
@@ -98,8 +106,21 @@ func main() {
 		},
 	})
 	registerCommand(&Command{
+		Symbol:   ":write-png",
+		HelpText: "Writes an image that was previously generated to a PNG file",
+		Run: func(st *State) error {
+			if len(st.args) < 2 {
+				return errors.New("usage: :write-png <imagename> <filename.png>")
+			}
+			img, ok := images[st.args[0]]
+			if !ok {
+				return fmt.Errorf("no image with name %s", st.args[0])
+			}
+			return writeImage(img, st.args[1])
+		},
+	})
+	registerCommand(&Command{
 		Symbol:   ":stack",
-		Aliases:  []string{":s"},
 		HelpText: "Print the current stack",
 		Run: func(st *State) error {
 			fmt.Printf("stack:\n")
@@ -220,4 +241,13 @@ func parseCommandArgs(line string) []string {
 		args = append(args, line[start:])
 	}
 	return args
+}
+
+func writeImage(img image.Image, filename string) error {
+	f, err := os.Create(filename)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return png.Encode(f, img)
 }
