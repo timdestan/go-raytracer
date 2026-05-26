@@ -65,6 +65,20 @@ func TestIllegalStringEscape(t *testing.T) {
 	}
 }
 
+func TestUnclosedStringLiteral(t *testing.T) {
+	input := `"doggo`
+	want := []LexerToken{
+		{Type: TokenIllegal, Literal: `doggo`},
+		{Type: TokenEOF, Literal: ""},
+	}
+
+	got := readAllTokens(input)
+
+	if diff := cmp.Diff(got, want, ignoreTokenPos); diff != "" {
+		t.Errorf("token mismatch (-got +want):\n%s", diff)
+	}
+}
+
 func TestLexExamples(t *testing.T) {
 	tests := []struct {
 		name  string

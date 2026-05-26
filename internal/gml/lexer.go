@@ -196,7 +196,10 @@ func (l *Lexer) readNumber() (string, LexemeType) {
 	return l.input[pos:l.pos], typ
 }
 
-var errIllegalEscape = errors.New("illegal escape sequence")
+var (
+	errIllegalEscape  = errors.New("illegal escape sequence")
+	errUnclosedString = errors.New("unclosed string literal")
+)
 
 func (l *Lexer) readString() (string, error) {
 	var sb strings.Builder
@@ -224,7 +227,11 @@ func (l *Lexer) readString() (string, error) {
 		}
 		l.readChar()
 	}
-	l.readChar() // closing quote
+	if l.ch == '"' {
+		l.readChar()
+	} else if err == nil {
+		err = errUnclosedString
+	}
 	return sb.String(), err
 }
 
