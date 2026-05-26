@@ -272,8 +272,10 @@ func (e *EvalState) Pop() (Value, error) {
 		pos := e.CurrToken.Position()
 		return nil, fmt.Errorf("%s%w: token: %v", pos.prefix(), ErrEmptyStack, TokenGroupDebugString(e.CurrToken))
 	}
-	val := e.Stack[len(e.Stack)-1]
-	e.Stack = e.Stack[:len(e.Stack)-1]
+	i := len(e.Stack) - 1
+	val := e.Stack[i]
+	e.Stack[i] = nil
+	e.Stack = e.Stack[:i]
 	return val, nil
 }
 

@@ -9,3 +9,6 @@ output/*
 profile*.svg
 
 .claude/
+
+# Windows sometimes locks the temporary test.exe (maybe scanning for viruses?)
+*.exe

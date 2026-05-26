@@ -112,3 +112,12 @@ func BenchmarkSphere(b *testing.B) {
 		}
 	}
 }
+
+func BenchmarkCube(b *testing.B) {
+	for b.Loop() {
+		_, err := ParseAndRenderGML(gml.MustReadTestdataFile("testdata/cube.gml"))
+		if err != nil {
+			b.Fatalf("BenchmarkCube: %v", err)
+		}
+	}
+}

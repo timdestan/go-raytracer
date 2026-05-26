@@ -28,9 +28,9 @@ var flagUpdate = flag.Bool("update", false, "If true, update the expected render
 // of the token that caused the failure.
 func TestEvalErrorPositions(t *testing.T) {
 	tests := []struct {
-		name        string
-		program     string
-		wantPrefix  string
+		name       string
+		program    string
+		wantPrefix string
 	}{
 		{
 			// addi is on line 3; popping VReal where VInt is expected
@@ -167,7 +167,7 @@ func TestSingleRender(t *testing.T) {
 			}
 			gotLines := RenderArgsToLines(got)
 			wantFile := "testdata/" + tt.name + ".out"
-			wantLines := strings.Split(MustReadTestdataFile(wantFile), "\n")
+			wantLines := SplitLines(MustReadTestdataFile(wantFile))
 			if diff := cmp.Diff(wantLines, gotLines); diff != "" {
 				if *flagUpdate {
 					err := os.WriteFile(wantFile, []byte(strings.Join(gotLines, "\n")), 0644)
