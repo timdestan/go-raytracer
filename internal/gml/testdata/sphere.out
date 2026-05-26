@@ -1,0 +1,18 @@
+render 1920 1200 sphere.ppm
+  fov: 90
+  depth: 4
+  ambient: 0.5 0.5 0.5
+  light:
+    position: -10 10 0
+    color: 1 1 1
+  union:
+    sphere:
+      center: 0 0 0
+      radius: 1
+      surface:
+        code: /v /u /face 0.8 0.2 v point 1.0 0.2 1.0
+    sphere:
+      center: 0 0 0
+      radius: 1
+      surface:
+        code: /v /u /face 0.8 0.2 v point 1.0 0.2 1.0

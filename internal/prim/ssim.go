@@ -2,8 +2,9 @@ package prim
 
 import (
 	"errors"
+	"fmt"
 	"image"
-	"math/rand"
+	"math"
 	"sync"
 )
 
@@ -13,8 +14,10 @@ const (
 	k1 = 0.01
 	k2 = 0.03
 
-	c1 = (k1 * k1)
-	c2 = (k2 * k2)
+	// RGBA() returns values in [0, 65535]; L is the dynamic range.
+	pixelRange = 0xFFFF
+	c1         = (k1 * pixelRange) * (k1 * pixelRange)
+	c2         = (k2 * pixelRange) * (k2 * pixelRange)
 )
 
 // SSIM computes a structured similarity index (SSIM) between two images.
@@ -38,6 +41,7 @@ func SSIM(img1, img2 image.Image) (float64, error) {
 	sum := 0.0
 
 	type workitem struct {
+		id   int
 		ssim float64
 		n    int
 	}
@@ -57,6 +61,7 @@ func SSIM(img1, img2 image.Image) (float64, error) {
 					n++
 				}
 				ch <- workitem{
+					id:   x,
 					ssim: sum,
 					n:    n,
 				}
@@ -67,18 +72,21 @@ func SSIM(img1, img2 image.Image) (float64, error) {
 	}()
 
 	for item := range ch {
+		if math.Abs(item.ssim) > float64(item.n) {
+			fmt.Printf("item: %+v\n", item)
+		}
 		sum += item.ssim
 		n += item.n
 	}
+
+	fmt.Printf("final: sum: %v, n: %v\n", sum, n)
 
 	return sum / float64(n), nil
 }
 
 func computeSSIMOnWindow(img1, img2 [][]rgb, xstart, ystart int, kernel []float64) float64 {
-	var r1Sum, r2Sum, g1Sum, g2Sum, b1Sum, b2Sum float64
-	n := float64(kernelSize * kernelSize)
+	var r1Avg, r2Avg, g1Avg, g2Avg, b1Avg, b2Avg float64
 
-	// TODO: I think we're supposed to add padding, so that we can apply the kernel on the edges of the image.
 	for k1 := range kernelSize {
 		for k2 := range kernelSize {
 			x := xstart + k1
@@ -88,23 +96,16 @@ func computeSSIMOnWindow(img1, img2 [][]rgb, xstart, ystart int, kernel []float6
 			i1 := img1[x][y]
 			i2 := img2[x][y]
 
-			r1Sum += float64(i1.r) * w
-			g1Sum += float64(i1.g) * w
-			b1Sum += float64(i1.b) * w
+			r1Avg += float64(i1.r) * w
+			g1Avg += float64(i1.g) * w
+			b1Avg += float64(i1.b) * w
 
-			r2Sum += float64(i2.r) * w
-			g2Sum += float64(i2.g) * w
-			b2Sum += float64(i2.b) * w
+			r2Avg += float64(i2.r) * w
+			g2Avg += float64(i2.g) * w
+			b2Avg += float64(i2.b) * w
 		}
 	}
-
-	r1Avg := r1Sum / n
-	g1Avg := g1Sum / n
-	b1Avg := b1Sum / n
-
-	r2Avg := r2Sum / n
-	g2Avg := g2Sum / n
-	b2Avg := b2Sum / n
+	// Kernel weights sum to 1, so the weighted sums are already the means.
 
 	var r1Var, g1Var, b1Var, r2Var, g2Var, b2Var, r12Var, g12Var, b12Var float64
 
@@ -130,20 +131,10 @@ func computeSSIMOnWindow(img1, img2 [][]rgb, xstart, ystart int, kernel []float6
 			b12Var += w * (float64(i1.b) - b1Avg) * (float64(i2.b) - b2Avg)
 		}
 	}
-
-	r1Var /= (n - 1)
-	g1Var /= (n - 1)
-	b1Var /= (n - 1)
-
-	r2Var /= (n - 1)
-	g2Var /= (n - 1)
-	b2Var /= (n - 1)
-
-	r12Var /= (n - 1)
-	g12Var /= (n - 1)
-	b12Var /= (n - 1)
+	// Weighted variance with sum(w)=1 needs no further division.
 
 	computeSSIM := func(avg1, avg2, var1, var2, covar float64) float64 {
+		// Formula (13) from the paper.
 		numerator := (2*avg1*avg2 + c1) * (2*covar + c2)
 		denominator := (avg1*avg1 + avg2*avg2 + c1) * (var1 + var2 + c2)
 		return numerator / denominator
@@ -154,18 +145,24 @@ func computeSSIMOnWindow(img1, img2 [][]rgb, xstart, ystart int, kernel []float6
 	blueSSIM := computeSSIM(b1Avg, b2Avg, b1Var, b2Var, b12Var)
 
 	// Average over RGB
-	return (redSSIM + greenSSIM + blueSSIM) / 3.0
+	finalSSIM := (redSSIM + greenSSIM + blueSSIM) / 3.0
+	return finalSSIM
 }
 
 func makeGaussianKernel() []float64 {
 	window := make([]float64, kernelSize*kernelSize)
 	const stddev = 1.5
+	center := float64(kernelSize-1) / 2
 	total := 0.0
-	for i := range window {
-		window[i] = rand.NormFloat64() * stddev
-		total += window[i]
+	for i := range kernelSize {
+		for j := range kernelSize {
+			x := float64(i) - center
+			y := float64(j) - center
+			v := math.Exp(-(x*x + y*y) / (2 * stddev * stddev))
+			window[i*kernelSize+j] = v
+			total += v
+		}
 	}
-	// Normalize so it sums to 1
 	for i := range window {
 		window[i] /= total
 	}

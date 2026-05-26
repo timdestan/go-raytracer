@@ -1,10 +1,15 @@
 package gml
 
 import (
+	"flag"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 )
+
+var flagUpdate = flag.Bool("update", false, "If true, update the expected renderarg outputs")
 
 // TestSimpleEval tests some simple cases with no render call.
 func TestSimpleEval(t *testing.T) {
@@ -56,53 +61,16 @@ func TestSimpleEval(t *testing.T) {
 // TestSingleRender tests programs where we expect exactly one call to render.
 func TestSingleRender(t *testing.T) {
 	type testCase struct {
-		name           string
-		program        string
-		wantRenderArgs *RenderArgs
-		debug          bool // set to enable debug tracing
+		name  string
+		debug bool // set to enable debug tracing
 	}
 	for _, tt := range []testCase{
-		{
-			name:    "sphere",
-			program: TestdataSphere,
-			wantRenderArgs: &RenderArgs{
-				AmbientLight: &Point{X: 0.5, Y: 0.5, Z: 0.5},
-				Lights: []*PointLight{
-					{
-						Position: Point{X: -10.0, Y: 10.0, Z: 0.0},
-						Color:    Point{X: 1.0, Y: 1.0, Z: 1.0},
-					},
-				},
-				Scene: &Union{
-					Objects: []SceneObject{
-						&Sphere{
-							Center: Point{X: 1.2, Y: 1.0, Z: 3.0},
-							Radius: 1.0,
-							SurfaceFn: VClosure{
-								Code: tokens(binder("v"), binder("u"), binder("face"), 0.8, 0.2, sym("v"), sym("point"), 1.0, 0.2, 1.0),
-								Env:  map[string]Value{},
-							},
-						},
-						&Sphere{
-							Center: Point{X: -1.2, Y: 0.0, Z: 3.0},
-							Radius: 1.0,
-							SurfaceFn: VClosure{
-								Code: tokens(binder("v"), binder("u"), binder("face"), 0.8, 0.2, sym("v"), sym("point"), 1.0, 0.2, 1.0),
-								Env:  map[string]Value{},
-							},
-						},
-					},
-				},
-				Depth:  4,
-				Fov:    90.0,
-				Width:  1920,
-				Height: 1200,
-				File:   "sphere.ppm",
-			},
-		},
+		{name: "sphere"},
+		{name: "cube"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			tokens, err := NewParser(tt.program).Parse()
+			program := MustReadTestdataFile("testdata/" + tt.name + ".gml")
+			tokens, err := NewParser(program).Parse()
 			if err != nil {
 				t.Errorf("parse error: %v", err)
 				return
@@ -123,9 +91,18 @@ func TestSingleRender(t *testing.T) {
 				t.Errorf("eval error: %v", err)
 				return
 			}
-
-			if diff := cmp.Diff(got, tt.wantRenderArgs); diff != "" {
-				t.Errorf("Eval() mismatch (-got +want):\n%s", diff)
+			gotLines := RenderArgsToLines(got)
+			wantFile := "testdata/" + tt.name + ".out"
+			wantLines := strings.Split(MustReadTestdataFile(wantFile), "\n")
+			if diff := cmp.Diff(wantLines, gotLines); diff != "" {
+				if *flagUpdate {
+					err := os.WriteFile(wantFile, []byte(strings.Join(gotLines, "\n")), 0644)
+					if err != nil {
+						t.Errorf("write error: %v", err)
+					}
+				} else {
+					t.Errorf("Eval() mismatch (-want +got):\n%s", diff)
+				}
 			}
 		})
 	}
@@ -137,7 +114,7 @@ func TestSingleRender(t *testing.T) {
 
 func BenchmarkParseAndEval(b *testing.B) {
 	for b.Loop() {
-		tokens, err := NewParser(TestdataSphere).Parse()
+		tokens, err := NewParser(MustReadTestdataFile("testdata/sphere.gml")).Parse()
 		if err != nil {
 			b.Errorf("parse error: %v", err)
 			return
@@ -160,7 +137,7 @@ func BenchmarkParseAndEval(b *testing.B) {
 
 func BenchmarkParse(b *testing.B) {
 	for b.Loop() {
-		_, err := NewParser(TestdataSphere).Parse()
+		_, err := NewParser(MustReadTestdataFile("testdata/sphere.gml")).Parse()
 		if err != nil {
 			b.Errorf("parse error: %v", err)
 			return
@@ -169,7 +146,7 @@ func BenchmarkParse(b *testing.B) {
 }
 
 func BenchmarkEval(b *testing.B) {
-	tokens, err := NewParser(TestdataSphere).Parse()
+	tokens, err := NewParser(MustReadTestdataFile("testdata/sphere.gml")).Parse()
 	if err != nil {
 		b.Errorf("parse error: %v", err)
 		return

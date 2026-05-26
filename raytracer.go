@@ -12,8 +12,8 @@ import (
 )
 
 type Ray struct {
-	Origin    *prim.Vec3
-	Direction *prim.Vec3
+	Origin    prim.Vec3
+	Direction prim.Vec3
 }
 
 func (r *Ray) String() string {
@@ -46,16 +46,27 @@ type SceneObject interface {
 }
 
 type Sphere struct {
-	Center    prim.Vec3
-	Radius    float64
-	Material  Material
-	SurfaceFn *gml.VClosure
-	EvalState *gml.EvalState
+	Center        prim.Vec3
+	Radius        float64
+	Material      Material
+	SurfaceFn     *gml.VClosure
+	EvalState     *gml.EvalState
+	WorldToObject prim.Mat4
+	NormalMat     prim.Mat4
+}
+
+func rayToObjectSpace(ray Ray, worldToObject *prim.Mat4) *Ray {
+	var localRay Ray
+	localRay.Origin = worldToObject.MulPoint(ray.Origin)
+	localRay.Direction = worldToObject.MulDir(ray.Direction)
+	return &localRay
 }
 
 func (sphere *Sphere) Intersect(ray *Ray) *Hit {
-	L := sphere.Center.Sub(ray.Origin)
-	t_ca := L.Dot(ray.Direction)
+	ray = rayToObjectSpace(*ray, &sphere.WorldToObject)
+
+	L := sphere.Center.Sub(&ray.Origin)
+	t_ca := L.Dot(&ray.Direction)
 	if t_ca < 0.0 {
 		// Center of the sphere is behind the screen.
 		return nil
@@ -64,17 +75,19 @@ func (sphere *Sphere) Intersect(ray *Ray) *Hit {
 	t0 := t_ca - t_hc
 	if t0 > 0.0 {
 		hitPoint := ray.Origin.Add(ray.Direction.Scale(t0))
-		material, err := computeSphereSurface(sphere, hitPoint)
+		material, err := computeSphereSurfaceMaterial(sphere, hitPoint)
 		if err != nil {
 			// TODO: Render operation should be able to propagate an error.
 			fmt.Printf("Sphere surfaceFn evaluation failed with error: %v\n", err)
 			return nil
 		}
+		normalDir := sphere.NormalMat.MulDir(*hitPoint.Sub(&sphere.Center))
+
 		return &Hit{
 			Object:   sphere,
 			T:        t0,
 			Point:    hitPoint,
-			Normal:   hitPoint.Sub(&sphere.Center).Normalize(),
+			Normal:   normalDir.Normalize(),
 			Material: material,
 		}
 	}
@@ -86,7 +99,7 @@ func (sphere *Sphere) Intersect(ray *Ray) *Hit {
 	return nil
 }
 
-func computeSphereSurface(sphere *Sphere, point *prim.Vec3) (*Material, error) {
+func computeSphereSurfaceMaterial(sphere *Sphere, point *prim.Vec3) (*Material, error) {
 	if sphere.SurfaceFn == nil {
 		return &sphere.Material, nil
 	}
@@ -97,14 +110,20 @@ func computeSphereSurface(sphere *Sphere, point *prim.Vec3) (*Material, error) {
 	//
 	// (0, u, v)
 	//
-	// x = sqrt(1 - y^2)sin(2*pi u)
+	// x = sqrt(1 - y^2) * sin(2*pi u)
 	// y = 2 v - 1
-	// z = sqrt(1 - y^2)cos(2*pi u)
+	// z = sqrt(1 - y^2) * cos(2*pi u)
 	//
 	// v = (y + 1.0) / 2.0
 	// u = acos (z / sqrt (1.0 - y * y)) / (2.0 * pi)
 
 	// TODO: How do we know the sqrt will not go negative?
+	// This implies point.Y <= 1, but it's not totally clear if this
+	// is guaranteed (point is computed from a hit on the sphere)
+	if math.Abs(point.Y) > 1 {
+		return nil, fmt.Errorf("expected |pt.Y| <= 1 in sphere surface, got %v", point)
+	}
+
 	v := (point.Y + 1.0) / 2.0
 	u := math.Acos(point.Z/math.Sqrt(1.0-point.Y*point.Y)) / (2.0 * math.Pi)
 
@@ -121,6 +140,7 @@ func computeSphereSurface(sphere *Sphere, point *prim.Vec3) (*Material, error) {
 	oldEnv := sphere.EvalState.Env
 	defer func() { sphere.EvalState.Env = oldEnv }()
 	sphere.EvalState.Env = sphere.SurfaceFn.Env
+
 	err := sphere.EvalState.Eval(sphere.SurfaceFn.Code)
 	if err != nil {
 		return nil, err
@@ -133,33 +153,103 @@ func computeSphereSurface(sphere *Sphere, point *prim.Vec3) (*Material, error) {
 	if err != nil {
 		return nil, err
 	}
-	surfaceColor, err := gml.PopValue[gml.Point](sphere.EvalState)
+	surfaceColor, err := gml.PopValue[*prim.Vec3](sphere.EvalState)
 	if err != nil {
 		return nil, err
 	}
-	return &Material{
-		Color:            pointToVec3(surfaceColor),
+	m := &Material{
+		Color:            *surfaceColor,
 		Kd:               float64(kd),
 		Ks:               float64(ks),
 		SpecularExponent: float64(n),
 		// Reflectivity:     0.0,
 		// Transparency:     0.0,
-	}, nil
+	}
+	// fmt.Printf("surfaceMat: %+v\n", m)
+	return m, nil
 }
 
 func (v *Sphere) String() string {
-	// Doesn't include color
 	return fmt.Sprintf("Sphere(Center: %v, Radius: %v)", v.Center, v.Radius)
 }
 
-// Light represents a point light source.
-type Light struct {
-	Position prim.Vec3
-	Color    prim.Vec3
+type Plane struct {
+	Normal        prim.Vec3
+	D             float64
+	SurfaceFn     *gml.VClosure
+	EvalState     *gml.EvalState
+	WorldToObject prim.Mat4
+	NormalMat     prim.Mat4
 }
 
-func (l *Light) String() string {
-	return fmt.Sprintf("Light(Position: %v, Color: %v)", l.Position, l.Color)
+// temporary, for testing
+var shinyMaterial = Material{
+	Color:            prim.RGB(0.8, 0.2, 0.2),
+	Ks:               0.8,
+	Kd:               1.0,
+	SpecularExponent: 50.0,
+	Transparency:     0.9,
+	RefractiveIndex:  1.5,
+}
+
+func (p *Plane) Intersect(ray *Ray) *Hit {
+	// TODO Need to convert ray to object space
+	denom := p.Normal.Dot(&ray.Direction)
+	if math.Abs(denom) < 1e-6 {
+		return nil
+	}
+	t := (-p.D - p.Normal.Dot(&ray.Origin)) / denom
+	if t <= 0.0 {
+		return nil
+	}
+	// TODO: Compute surface function.
+	return &Hit{
+		Object:   p,
+		T:        t,
+		Point:    ray.Origin.Add(ray.Direction.Scale(t)),
+		Normal:   &p.Normal,
+		Material: &shinyMaterial,
+	}
+}
+
+func (p *Plane) String() string {
+	return fmt.Sprintf("Plane(Normal: %v, D: %v)", p.Normal, p.D)
+}
+
+type Cube struct {
+	Faces [6]Plane
+	// SurfaceFn and EvalState are duplicated in each face.
+	// Material not supported
+}
+
+func (c *Cube) Intersect(ray *Ray) *Hit {
+	// TODO:
+	// To handle cases where the cube is not axis aligned, we need
+	// to apply the inverse transform of the cube (inverse rotation + translation)
+	// to the ray origin and direction to project the ray in the cube's local space.
+
+	var hits [6]*Hit
+	for i := range c.Faces {
+		hits[i] = c.Faces[i].Intersect(ray)
+	}
+	// We need to find a hit that is within the bounds of the cube.
+	// A hit should point into the cube.
+	var minHit *Hit
+	// for i, hit := range hits {
+	// 	if hit == nil || hit.T < 0.0 {
+	// 		continue
+	// 	}
+	// 	for j, otherHit := range hits {
+	// 		if i == j {
+	// 			continue
+	// 		}
+	// 		if minHit == nil || hit.T < minHit.T {
+	// 			minHit = hit
+	// 		}
+	// 	}
+	// }
+	return minHit
+
 }
 
 func computeLighting(hit *Hit, scene *Scene, ray *Ray) *prim.Vec3 {
@@ -203,7 +293,7 @@ func computeLighting(hit *Hit, scene *Scene, ray *Ray) *prim.Vec3 {
 func inShadow(hit *Hit, scene *Scene, lightDir *prim.Vec3, distToLight float64, ray *Ray) bool {
 	const epsilon = 1e-4
 	shadowOrigin := hit.Point.Add(hit.Normal.Scale(epsilon))
-	shadowRay := &Ray{Origin: shadowOrigin, Direction: lightDir}
+	shadowRay := &Ray{Origin: *shadowOrigin, Direction: *lightDir}
 	for _, obj := range scene.Objects {
 		if obj == hit.Object {
 			continue
@@ -299,10 +389,14 @@ func traceRay(scene *Scene, ray *Ray, depth int) *prim.Vec3 {
 		fuzz := mat.Fuzziness
 		reflectedDir := ray.Direction.Sub(hit.Normal.Scale(2.0 * ray.Direction.Dot(hit.Normal)))
 		// "random" vector
-		randomVector := prim.Vec3{math.Cos(fuzz) * math.Cos(fuzz), math.Sin(fuzz) * math.Sin(fuzz), 0}
+		randomVector := prim.Vec3{
+			X: math.Cos(fuzz) * math.Cos(fuzz),
+			Y: math.Sin(fuzz) * math.Sin(fuzz),
+			Z: 0,
+		}
 		reflectionRay := Ray{
-			Origin:    hit.Point.Add(hit.Normal.Scale(1e-4)),
-			Direction: reflectedDir.Add(randomVector.Scale(fuzz)).Normalize(),
+			Origin:    *hit.Point.Add(hit.Normal.Scale(1e-4)),
+			Direction: *reflectedDir.Add(randomVector.Scale(fuzz)).Normalize(),
 		}
 		reflectedColor = traceRay(scene, &reflectionRay, depth-1)
 	}
@@ -323,17 +417,17 @@ func traceRay(scene *Scene, ray *Ray, depth int) *prim.Vec3 {
 			normal = normal.Scale(-1.0)
 		}
 
-		refractedDir := refract(ray.Direction, normal, n1, n2)
+		refractedDir := refract(&ray.Direction, normal, n1, n2)
 
 		if refractedDir != nil {
 			// Create the refracted ray. We offset the origin slightly to avoid self-intersection.
-			refractedRay := Ray{Origin: hit.Point.Sub(normal.Scale(1e-4)), Direction: refractedDir}
+			refractedRay := Ray{Origin: *hit.Point.Sub(normal.Scale(1e-4)), Direction: *refractedDir}
 
 			// Recursively trace the refracted ray
 			refractedColor = traceRay(scene, &refractedRay, depth-1)
 		}
 	}
-	kr := fresnel(hit.Normal, ray.Direction, mat.RefractiveIndex)
+	kr := fresnel(hit.Normal, &ray.Direction, mat.RefractiveIndex)
 	return surfaceColor.Scale(1.0 - mat.Transparency).AddI(reflectedColor.Scale(kr).AddI(refractedColor.Scale(1.0 - kr))).ClampI()
 }
 
@@ -350,7 +444,7 @@ type Scene struct {
 	RecursionDepth int
 
 	Objects []SceneObject
-	Lights  []*Light
+	Lights  []*gml.PointLight
 
 	AmbientLight prim.Vec3
 
@@ -392,15 +486,11 @@ func Render(scene *Scene) image.Image {
 				dv := rand.Float64() - 0.5
 				u := (float64(x)+du)/float64(scene.WidthPx-1)*viewportWidth - viewportWidth/2.0
 				v := (float64(y)+dv)/float64(scene.HeightPx-1)*viewportHeight - viewportHeight/2.0
-				screenPoint := &prim.Vec3{
-					X: u,
-					Y: -v,
-					Z: 0.0,
-				}
-				ray := Ray{
-					Origin:    screenPoint,
-					Direction: screenPoint.Sub(eyePosition).Normalize(),
-				}
+
+				var ray Ray
+				ray.Origin = prim.Vec3{X: u, Y: -v, Z: 0.0} // screen point
+				ray.Direction = *ray.Origin.Sub(eyePosition).Normalize()
+
 				color := traceRay(scene, &ray, recursionLimit)
 				totalColor.AddI(color)
 			}
@@ -432,7 +522,7 @@ func ParseAndRenderGML(programText string) (image.Image, error) {
 		return nil, err
 	}
 	if len(images) > 1 {
-		// We would easily support this if we wanted to.
+		// We could easily support this if we wanted to.
 		return nil, errors.New("multiple images were rendered by the GML program")
 	}
 	// Return first (only) image.
@@ -453,50 +543,64 @@ func ConvertRenderArgsToScene(args *gml.RenderArgs, state *gml.EvalState) (*Scen
 		Fov:            args.Fov,
 		RecursionDepth: args.Depth,
 		Objects:        convertedObjects,
-		Lights:         convertGMLLights(args.Lights),
-		AmbientLight:   pointToVec3(*args.AmbientLight),
+		Lights:         args.Lights,
+		AmbientLight:   *args.AmbientLight,
 	}, nil
 }
 
 func convertGMLSceneObjects(sceneObjects []gml.SceneObject, evalState *gml.EvalState) ([]SceneObject, error) {
 	toVisit := sceneObjects
-	var result []SceneObject
+	var results []SceneObject
 	for len(toVisit) > 0 {
 		sceneObject := toVisit[0]
 		toVisit = toVisit[1:]
 		switch typedObject := sceneObject.(type) {
 		case *gml.Sphere:
-			result = append(result, &Sphere{
-				Center: pointToVec3(typedObject.Center),
-				Radius: float64(typedObject.Radius),
-				// Material: nil,
+			var worldToObject prim.Mat4
+
+			if typedObject.TransformMat != nil {
+				worldToObject = *typedObject.TransformMat.Inverse()
+			} else {
+				worldToObject = prim.IdentityMatrix()
+			}
+
+			results = append(results, &Sphere{
+				Center:        typedObject.Center,
+				Radius:        float64(typedObject.Radius),
+				SurfaceFn:     &typedObject.SurfaceFn,
+				EvalState:     evalState,
+				WorldToObject: worldToObject,
+				NormalMat:     *worldToObject.Transpose(),
+
+				// Material : nil
+			})
+		case *gml.Cube:
+			fmt.Println("WARN: cube skipped in rendering")
+			// cube := &Cube{}
+			// TODO: We don't represent the GML cube as a slice of faces anymore.
+			// Instead we just have 2 opposite corners and an XForm struct (translation, rotation, scale).
+			// for i, p := range typedObject.Faces {
+			// 	cube.Faces[i] = Plane{
+			// 		Normal:    p.Normal,
+			// 		D:         -p.Normal.Dot(&p.Point),
+			// 		SurfaceFn: &typedObject.SurfaceFn,
+			// 		EvalState: evalState,
+			// 	}
+			// }
+			// result = append(result, cube)
+		case *gml.Plane:
+			results = append(results, &Plane{
+				Normal:    typedObject.Plane.Normal,
+				D:         -typedObject.Plane.Normal.Dot(&typedObject.Plane.Point),
 				SurfaceFn: &typedObject.SurfaceFn,
 				EvalState: evalState,
 			})
 		case *gml.Union:
+			// Right now we just flatten everything...
 			toVisit = append(toVisit, typedObject.Objects...)
 		default:
 			return nil, fmt.Errorf("unknown scene object type %T", sceneObject)
 		}
 	}
-	return result, nil
-}
-
-func convertGMLLights(lights []*gml.PointLight) []*Light {
-	var result []*Light
-	for _, light := range lights {
-		result = append(result, &Light{
-			Position: pointToVec3(light.Position),
-			Color:    pointToVec3(light.Color),
-		})
-	}
-	return result
-}
-
-func pointToVec3(point gml.Point) prim.Vec3 {
-	return prim.Vec3{
-		X: float64(point.X),
-		Y: float64(point.Y),
-		Z: float64(point.Z),
-	}
+	return results, nil
 }

@@ -68,7 +68,7 @@ func TestLexExamples(t *testing.T) {
 	}{
 		{
 			name:  "Sphere",
-			input: TestdataSphere,
+			input: MustReadTestdataFile("testdata/sphere.gml"),
 			want: []LexerToken{
 				{Type: TokenLCurly, Literal: "{"},
 				{Type: TokenBinder, Literal: "/v"},
@@ -135,7 +135,7 @@ func TestLexExamples(t *testing.T) {
 		},
 		{
 			name:  "Cube",
-			input: TestdataCube,
+			input: MustReadTestdataFile("testdata/cube.gml"),
 			want: []LexerToken{
 				{Type: TokenLCurly, Literal: "{"},
 				{Type: TokenBinder, Literal: "/v"},
@@ -263,9 +263,9 @@ func TestLexExamples(t *testing.T) {
 				{Type: TokenIdent, Literal: "p2"},
 				{Type: TokenIdent, Literal: "union"},
 				{Type: TokenBinder, Literal: "/scene"},
-				{Type: TokenInt, Literal: "-10"},
-				{Type: TokenInt, Literal: "10"},
-				{Type: TokenInt, Literal: "0"},
+				{Type: TokenFloat, Literal: "-10.0"},
+				{Type: TokenFloat, Literal: "10.0"},
+				{Type: TokenFloat, Literal: "0.0"},
 				{Type: TokenIdent, Literal: "point"},
 				{Type: TokenFloat, Literal: "1.0"},
 				{Type: TokenFloat, Literal: "1.0"},

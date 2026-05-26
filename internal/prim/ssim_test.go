@@ -2,22 +2,56 @@ package prim
 
 import (
 	"image"
-	"math/rand"
+	"math/rand/v2"
+	"os"
+	"strconv"
 	"testing"
 )
 
+var seed1, seed2 uint64
+var rng *rand.Rand
+
+func getSeed(key string) (uint64, error) {
+	v := os.Getenv(key)
+	if v == "" {
+		return rand.Uint64(), nil
+	}
+	return strconv.ParseUint(v, 10, 64)
+}
+
+func must[T any](t T, err error) T {
+	if err != nil {
+		panic(err)
+	}
+	return t
+}
+
+func init() {
+	resetRNG()
+}
+
+func resetRNG() {
+	seed1 = must(getSeed("SEED1"))
+	seed2 = must(getSeed("SEED2"))
+	rng = rand.New(rand.NewPCG(seed1, seed2))
+}
+
 func TestSSIMSameImage(t *testing.T) {
+	resetRNG()
+
 	image := makeRandomImage(100, 100)
 	ssim, err := SSIM(image, image)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if ssim < 0.999 {
-		t.Errorf("SSIM is %f, want ~1.0", ssim)
+		t.Errorf("SSIM is %f, want ~1.0, SEED1=%d SEED2=%d", ssim, seed1, seed2)
 	}
 }
 
 func TestSSIMDifferentImages(t *testing.T) {
+	resetRNG()
+
 	image1 := makeRandomImage(100, 100)
 	image2 := makeRandomImage(100, 100)
 	ssim, err := SSIM(image1, image2)
@@ -25,18 +59,18 @@ func TestSSIMDifferentImages(t *testing.T) {
 		t.Fatal(err)
 	}
 	if ssim > 0.999 {
-		t.Errorf("SSIM is %f, want some number < 1.0", ssim)
+		t.Errorf("SSIM is %f, want some number < 1.0 SEED1=%d SEED2=%d", ssim, seed1, seed2)
 	}
 }
 
 func makeRandomImage(width, height int) *image.RGBA {
 	img := image.NewRGBA(image.Rect(0, 0, width, height))
-	for x := 0; x < width; x++ {
-		for y := 0; y < height; y++ {
+	for x := range width {
+		for y := range height {
 			img.Set(x, y, &Vec3{
-				X: rand.Float64(),
-				Y: rand.Float64(),
-				Z: rand.Float64(),
+				X: rng.Float64(),
+				Y: rng.Float64(),
+				Z: rng.Float64(),
 			})
 		}
 	}

@@ -9,14 +9,15 @@
 %} sphere 1.2 1.0 3.0 translate /s1
 
 {
- /v /u /face		  % bind arguments
+  /v /u /face		      % bind arguments
   0.8 0.2 v point		  % surface color
-  1.0 0.2 1.0		  % kd ks n
+  1.0 0.2 1.0		      % kd ks n
 } sphere /s
-				% scene consisting of two spheres
-s -1.2 0.0 3.0 translate 	  % sphere at (-1, 0, 3)
-s  1.2 1.0 3.0 translate	  % sphere at (1, 1, 3)
-union /scene	  	% compose
+
+% scene consisting of two spheres
+s -1.2 0.0 3.0 translate 	  % sphere at (-1.2, 0, 3)
+s  1.2 1.0 3.0 translate	  % sphere at ( 1.2, 1, 3)
+union /scene	  	          % compose
 
 %s1 s2 union /s
 
@@ -24,11 +25,11 @@ union /scene	  	% compose
 1.0 1.0 1.0 point pointlight /l
 
 0.5 0.5 0.5 point			% ambient
-[ l ]						% lights
-scene						% object
-4							% depth
-90.0							% fov
-1920 1200						% wid ht
+[ l ]						      % lights
+scene						      % object
+4							        % depth
+90.0							    % fov
+1920 1200						  % wid ht
 "sphere.ppm"					% output file
 render
 

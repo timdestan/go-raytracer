@@ -20,7 +20,7 @@ func TestParseExamples(t *testing.T) {
 		},
 		{
 			name:  "sphere",
-			input: TestdataSphere,
+			input: MustReadTestdataFile("testdata/sphere.gml"),
 			want: tokens(
 				function(
 					binder("v"), binder("u"), binder("face"),
@@ -69,7 +69,7 @@ func TestParseExamples(t *testing.T) {
 		},
 		{
 			name:  "cube",
-			input: TestdataCube,
+			input: MustReadTestdataFile("testdata/cube.gml"),
 			want: tokens(
 				function(
 					binder("v"), binder("u"), binder("face"),
@@ -123,7 +123,7 @@ func TestParseExamples(t *testing.T) {
 				binder("p2"),
 
 				sym("c"), sym("p"), sym("union"), sym("p2"), sym("union"), binder("scene"),
-				-10, 10, 0, sym("point"),
+				-10.0, 10.0, 0.0, sym("point"),
 				1.0, 1.0, 1.0, sym("point"), sym("pointlight"), binder("l"),
 				0.2, 0.2, 0.2, sym("point"),
 				array(sym("l")),

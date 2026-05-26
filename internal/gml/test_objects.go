@@ -1,12 +1,18 @@
 package gml
 
 import (
-	_ "embed"
+	"embed"
 )
 
 var (
-	//go:embed testdata/cube.gml
-	TestdataCube string
-	//go:embed testdata/sphere.gml
-	TestdataSphere string
+	//go:embed testdata/*
+	testdataFS embed.FS
 )
+
+func MustReadTestdataFile(name string) string {
+	b, err := testdataFS.ReadFile(name)
+	if err != nil {
+		panic(err)
+	}
+	return string(b)
+}

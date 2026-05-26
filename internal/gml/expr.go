@@ -2,6 +2,7 @@ package gml
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -91,7 +92,7 @@ func (f *Function) Type() TokenGroupType {
 
 func FormatFloat(f float64) string {
 	str := strconv.FormatFloat(f, 'g', -1, 64)
-	if strings.Contains(str, ".") || strings.ContainsAny(str, "eE") {
+	if strings.ContainsAny(str, ".eE") {
 		return str
 	}
 	// Show trailing .0 even for integers to make it obvious the result is
@@ -129,4 +130,24 @@ func (l TokenList) String() string {
 		body[i] = TokenGroupDebugString(token)
 	}
 	return strings.Join(body, " ")
+}
+
+func formatMap[V fmt.Stringer](m map[string]V) string {
+	var sb strings.Builder
+	sb.WriteString("{")
+	var sortedKeys []string
+	for k := range m {
+		sortedKeys = append(sortedKeys, k)
+	}
+	slices.Sort(sortedKeys)
+	for _, k := range sortedKeys {
+		if sb.Len() > 1 {
+			sb.WriteString(", ")
+		}
+		sb.WriteString(k)
+		sb.WriteString(": ")
+		sb.WriteString(m[k].String())
+	}
+	sb.WriteString("}")
+	return sb.String()
 }

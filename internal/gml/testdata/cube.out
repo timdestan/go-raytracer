@@ -1,0 +1,37 @@
+render 480 320 cube.ppm
+  fov: 90
+  depth: 7
+  ambient: 0.2 0.2 0.2
+  light:
+    position: -10 10 0
+    color: 1 1 1
+  union:
+    plane:
+      point: 0 0 0
+      normal: 0 -1 0
+      surface:
+        code: /v /u /face 0.5 0.5 0.5 point 0.3 0.85 1.0
+        env:
+          blue: Vec3(0.0000, 0.0000, 1.0000)
+          c: Cube({0 0 0}, {1 1 1})
+          fabs: Closure(/i i 0.0 lessf { i negf 0.5 addf } { i } if, env={blue: Vec3(0.0000, 0.0000, 1.0000), c: Cube({0 0 0}, {1 1 1}), texture: [[Vec3(0.0000, 0.0000, 1.0000), Vec3(1.0000, 1.0000, 1.0000)], [Vec3(1.0000, 1.0000, 1.0000), Vec3(0.0000, 0.0000, 1.0000)]], white: Vec3(1.0000, 1.0000, 1.0000)})
+          p: Pt: {0 0 0}, Normal: {0 -1 0}
+          texture: [[Vec3(0.0000, 0.0000, 1.0000), Vec3(1.0000, 1.0000, 1.0000)], [Vec3(1.0000, 1.0000, 1.0000), Vec3(0.0000, 0.0000, 1.0000)]]
+          white: Vec3(1.0000, 1.0000, 1.0000)
+    union:
+      plane:
+        point: 0 0 0
+        normal: 0 -1 0
+        surface:
+          code: fabs apply /v fabs apply /u /face { frac 0.5 addf floor /i i } /toIntCoord texture u toIntCoord apply get v toIntCoord apply get 0.3 0.9 1.0
+          env:
+            blue: Vec3(0.0000, 0.0000, 1.0000)
+            c: Cube({0 0 0}, {1 1 1})
+            fabs: Closure(/i i 0.0 lessf { i negf 0.5 addf } { i } if, env={blue: Vec3(0.0000, 0.0000, 1.0000), c: Cube({0 0 0}, {1 1 1}), texture: [[Vec3(0.0000, 0.0000, 1.0000), Vec3(1.0000, 1.0000, 1.0000)], [Vec3(1.0000, 1.0000, 1.0000), Vec3(0.0000, 0.0000, 1.0000)]], white: Vec3(1.0000, 1.0000, 1.0000)})
+            texture: [[Vec3(0.0000, 0.0000, 1.0000), Vec3(1.0000, 1.0000, 1.0000)], [Vec3(1.0000, 1.0000, 1.0000), Vec3(0.0000, 0.0000, 1.0000)]]
+            white: Vec3(1.0000, 1.0000, 1.0000)
+      cube:
+        minpoint: 0 0 0
+        maxpoint: 1 1 1
+        surface:
+          code: /v /u /face 1.0 0.5 0.5 point 1.0 0.0 1.0

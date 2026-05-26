@@ -4,12 +4,15 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"strconv"
 	"strings"
+
+	"github.com/timdestan/go-raytracer/internal/prim"
 )
 
 type RenderArgs struct {
-	AmbientLight *Point // The intensity of ambient light (a point)
+	AmbientLight *prim.Vec3 // The intensity of ambient light (a point)
 	Lights       []*PointLight
 	Scene        SceneObject
 	Depth        int     // The recursion depth limit
@@ -29,12 +32,9 @@ type EvalState struct {
 
 type Value interface {
 	fmt.Stringer
-	value()
 }
 
 type VInt int
-
-func (VInt) value() {}
 
 func (v VInt) String() string {
 	return fmt.Sprintf("%d", int(v))
@@ -42,23 +42,17 @@ func (v VInt) String() string {
 
 type VReal float64
 
-func (VReal) value() {}
-
 func (v VReal) String() string {
 	return FormatFloat(float64(v))
 }
 
 type VBool bool
 
-func (VBool) value() {}
-
 func (v VBool) String() string {
 	return strconv.FormatBool(bool(v))
 }
 
 type VString string
-
-func (VString) value() {}
 
 func (v VString) String() string {
 	return strconv.Quote(string(v))
@@ -67,23 +61,6 @@ func (v VString) String() string {
 type VClosure struct {
 	Code TokenList
 	Env  map[string]Value
-}
-
-func (VClosure) value() {}
-
-func formatMap[V fmt.Stringer](m map[string]V) string {
-	var sb strings.Builder
-	sb.WriteString("{")
-	for k, v := range m {
-		if sb.Len() > 1 {
-			sb.WriteString(", ")
-		}
-		sb.WriteString(k)
-		sb.WriteString(": ")
-		sb.WriteString(v.String())
-	}
-	sb.WriteString("}")
-	return sb.String()
 }
 
 func (v VClosure) String() string {
@@ -107,75 +84,103 @@ func (a VArray) String() string {
 	return sb.String()
 }
 
-func (VArray) value() {}
-
-type Point struct {
-	X, Y, Z VReal
-}
-
-func (Point) value() {}
-
-func (p Point) String() string {
-	return fmt.Sprintf("Point(%v, %v, %v)", p.X, p.Y, p.Z)
-}
-
 type SceneObject interface {
 	Value
 
-	// Translate produces a new SceneObject by applying the translation.
-	Translate(x, y, z VReal) SceneObject
+	Transform(mat *prim.Mat4) SceneObject
 }
 
 type Sphere struct {
-	Center    Point
-	Radius    VReal
-	SurfaceFn VClosure
+	Center       prim.Vec3
+	Radius       float64
+	SurfaceFn    VClosure
+	TransformMat *prim.Mat4
 }
 
-func (Sphere) value() {}
+var _ SceneObject = (*Sphere)(nil)
 
 func (s Sphere) String() string {
 	return fmt.Sprintf("Sphere(C: %v, R: %v)", s.Center, s.Radius)
 }
 
-func (s *Sphere) Translate(x, y, z VReal) SceneObject {
-	return &Sphere{
-		Center: Point{
-			X: s.Center.X + x,
-			Y: s.Center.Y + y,
-			Z: s.Center.Z + z,
-		},
-		Radius:    s.Radius,
-		SurfaceFn: s.SurfaceFn,
+func (s *Sphere) Transform(mat *prim.Mat4) SceneObject {
+	copy := *s
+	if copy.TransformMat == nil {
+		copy.TransformMat = mat
+	} else {
+		copy.TransformMat = mat.MulMat(copy.TransformMat)
 	}
+	return &copy
+}
+
+type Cube struct {
+	Cube         prim.Cube
+	SurfaceFn    VClosure
+	TransformMat *prim.Mat4
+}
+
+var _ SceneObject = (*Cube)(nil)
+
+func (c *Cube) String() string {
+	return fmt.Sprintf("Cube(%v, %v)", c.Cube.MinPoint, c.Cube.MaxPoint)
+}
+
+func (c *Cube) Transform(mat *prim.Mat4) SceneObject {
+	copy := *c
+	if copy.TransformMat == nil {
+		copy.TransformMat = mat
+	} else {
+		copy.TransformMat = mat.MulMat(copy.TransformMat)
+	}
+	return &copy
+}
+
+type Plane struct {
+	Plane        prim.Plane
+	SurfaceFn    VClosure
+	TransformMat *prim.Mat4
+}
+
+var _ SceneObject = (*Plane)(nil)
+
+func (p Plane) String() string {
+	return p.Plane.String()
+}
+
+func (p *Plane) Transform(mat *prim.Mat4) SceneObject {
+	copy := *p
+	if copy.TransformMat == nil {
+		copy.TransformMat = mat
+	} else {
+		copy.TransformMat = mat.MulMat(copy.TransformMat)
+	}
+	return &copy
 }
 
 type Union struct {
 	Objects []SceneObject
 }
 
-func (Union) value() {}
+var _ SceneObject = (*Union)(nil)
 
 func (u Union) String() string {
 	return fmt.Sprintf("Union(%v)", u.Objects)
 }
 
-func (u *Union) Translate(x, y, z VReal) SceneObject {
+func (u *Union) Transform(m *prim.Mat4) SceneObject {
 	v := &Union{
 		Objects: make([]SceneObject, len(u.Objects)),
 	}
 	for i := range u.Objects {
-		v.Objects[i] = u.Objects[i].Translate(x, y, z)
+		v.Objects[i] = u.Objects[i].Transform(m)
 	}
 	return v
 }
 
 type PointLight struct {
-	Position Point
-	Color    Point // RGB
+	Position prim.Vec3
+	Color    prim.Vec3 // RGB
 }
-
-func (PointLight) value() {}
 
 func (p PointLight) String() string {
 	return fmt.Sprintf("PointLight(pos=%v, color=%v)", p.Position, p.Color)
@@ -322,16 +327,16 @@ func init() {
 
 	registerBuiltin("addi", addi)
 	registerBuiltin("apply", apply)
-	//	registerBuiltin("cube", nil)
+	registerBuiltin("cube", cube)
 	registerBuiltin("sphere", sphere)
-	//	registerBuiltin("plane", nil)
+	registerBuiltin("plane", plane)
 	registerBuiltin("point", point)
 	registerBuiltin("pointlight", pointlight)
 	registerBuiltin("translate", translate)
-	// registerBuiltin("uscale", nil)
-	// registerBuiltin("rotatex", nil)
-	// registerBuiltin("rotatey", nil)
-	// registerBuiltin("rotatez", nil)
+	registerBuiltin("uscale", uscale)
+	registerBuiltin("rotatex", rotatex)
+	registerBuiltin("rotatey", rotatey)
+	registerBuiltin("rotatez", rotatez)
 	registerBuiltin("union", union)
 	registerBuiltin("render", render)
 }
@@ -365,21 +370,21 @@ func point(e *EvalState) error {
 	if err != nil {
 		return err
 	}
-	e.Push(Point{X: x, Y: y, Z: z})
+	e.Push(&prim.Vec3{X: float64(x), Y: float64(y), Z: float64(z)})
 	return nil
 }
 
 func pointlight(e *EvalState) error {
 	// pos color pointlight
-	color, err := PopValue[Point](e)
+	color, err := PopValue[*prim.Vec3](e)
 	if err != nil {
 		return err
 	}
-	pos, err := PopValue[Point](e)
+	pos, err := PopValue[*prim.Vec3](e)
 	if err != nil {
 		return err
 	}
-	e.Push(&PointLight{Position: pos, Color: color})
+	e.Push(&PointLight{Position: *pos, Color: *color})
 	return nil
 }
 
@@ -392,8 +397,42 @@ func sphere(e *EvalState) error {
 		return err
 	}
 	e.Push(&Sphere{
-		Center:    Point{X: 0, Y: 0, Z: 0},
+		Center:    prim.Vec3{X: 0, Y: 0, Z: 0},
 		Radius:    1.0,
+		SurfaceFn: surfaceFn,
+	})
+	return nil
+}
+
+// cube creates a cube with corners at (0, 0, 0)
+// and (1, 1, 1).
+func cube(e *EvalState) error {
+	surfaceFn, err := PopValue[VClosure](e)
+	if err != nil {
+		return err
+	}
+	e.Push(&Cube{
+		Cube: *prim.CubeFromCorners(
+			&prim.Vec3{X: 0, Y: 0, Z: 0},
+			&prim.Vec3{X: 1, Y: 1, Z: 1},
+		),
+		SurfaceFn: surfaceFn,
+	})
+	return nil
+}
+
+// plane creates the half space defined by the
+// equation y <= 0.
+func plane(e *EvalState) error {
+	surfaceFn, err := PopValue[VClosure](e)
+	if err != nil {
+		return err
+	}
+	e.Push(&Plane{
+		Plane: prim.Plane{
+			Point:  prim.Vec3{}, // (0, 0, 0)
+			Normal: prim.Vec3{X: 0, Y: -1, Z: 0},
+		},
 		SurfaceFn: surfaceFn,
 	})
 	return nil
@@ -408,8 +447,52 @@ func translate(e *EvalState) error {
 	if err != nil {
 		return err
 	}
-	e.Push(s.Translate(x, y, z))
+	e.Push(s.Transform(prim.Mat4Translate(&prim.Vec3{
+		X: float64(x),
+		Y: float64(y),
+		Z: float64(z),
+	})))
 	return nil
+}
+
+func uscale(e *EvalState) error {
+	scale, err := PopValue[VReal](e)
+	if err != nil {
+		return err
+	}
+	s, err := PopValue[SceneObject](e)
+	if err != nil {
+		return err
+	}
+	e.Push(s.Transform(prim.Mat4Scale(float64(scale), float64(scale), float64(scale))))
+	return nil
+}
+
+// TODO: Would it be better to represent the rotations as quaternions
+// since we went to all the trouble of implementing them?
+func rotate(e *EvalState, f func(angle float64) *prim.Mat4) error {
+	angle, err := PopValue[VReal](e)
+	if err != nil {
+		return err
+	}
+	s, err := PopValue[SceneObject](e)
+	if err != nil {
+		return err
+	}
+	e.Push(s.Transform(f(float64(angle * math.Pi / 180))))
+	return nil
+}
+
+func rotatex(e *EvalState) error {
+	return rotate(e, prim.Mat4RotateX)
+}
+
+func rotatey(e *EvalState) error {
+	return rotate(e, prim.Mat4RotateY)
+}
+
+func rotatez(e *EvalState) error {
+	return rotate(e, prim.Mat4RotateZ)
 }
 
 func union(e *EvalState) error {
@@ -456,7 +539,7 @@ func render(e *EvalState) error {
 	if err != nil {
 		return err
 	}
-	amb, err := PopValue[Point](e)
+	amb, err := PopValue[*prim.Vec3](e)
 	if err != nil {
 		return err
 	}
@@ -478,7 +561,7 @@ func render(e *EvalState) error {
 		Fov:          float64(fov),
 		Depth:        int(depth),
 		Scene:        obj,
-		AmbientLight: &amb,
+		AmbientLight: amb,
 		Lights:       lightValues,
 	})
 }

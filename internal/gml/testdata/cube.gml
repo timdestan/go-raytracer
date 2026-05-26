@@ -15,8 +15,8 @@
 0.0  0.0  1.0  point /blue
 
 [                                 % 3x3 pattern
-	[ blue  white ]
-    	[ white blue ]
+  [ blue white ]
+  [ white blue ]
 ] /texture
 { /i
   i 0.0 lessf { i negf 0.5 addf } { i } if
@@ -33,7 +33,7 @@
   texture u toIntCoord apply get  % color = texture[u][v]
     v toIntCoord apply get
   0.3                             % kd = 1.0
-  0.9                            % ks = 0.0
+  0.9                             % ks = 0.0
   1.0                             % n = 1.0
 } plane
 0.0 -3.0 0.0 translate
@@ -50,14 +50,14 @@
 
 c p union p2 union /scene
 
--10 10 0 point
+-10.0 10.0 0.0 point
 1.0 1.0 1.0 point pointlight /l
 
 0.2 0.2 0.2 point		  % ambient light
-[ l ]				  % lights
-scene				  % scene to render
-7				  % tracing depth
-90.0				  % field of view
-480 320 		  % image wid and height
-"cube.ppm"			  % output file
+[ l ]				          % lights
+scene				          % scene to render
+7				              % tracing depth
+90.0				          % field of view
+480 320 		          % image width and height
+"cube.ppm"			      % output file
 render
