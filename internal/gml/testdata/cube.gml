@@ -24,9 +24,9 @@
 
 { fabs apply /v
   fabs apply /u
-  /face                     % bind parameters
-  {                               % toIntCoord : float -> int
-    frac 0.5 addf floor /i  % i = floor(3.0*i)
+  /face                             % bind parameters
+  {                                 % toIntCoord : float -> int
+    frac 0.5 addf floor /i          % i = floor(3.0*i)
     % i 3 eqi { 2 } { i } if        % return max(2, i)
     i
   } /toIntCoord

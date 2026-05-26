@@ -62,6 +62,39 @@ func rayToObjectSpace(ray Ray, worldToObject *prim.Mat4) *Ray {
 	return &localRay
 }
 
+func evalSurfaceFn(face int, u, v float64, state *gml.EvalState, closure gml.VClosure) (*Material, error) {
+	state.Push(gml.VInt(face))
+	state.Push(gml.VReal(u))
+	state.Push(gml.VReal(v))
+
+	err := state.EvalClosure(closure)
+
+	if err != nil {
+		return nil, err
+	}
+
+	// x y z point        % surface color
+	// 1.0 0.2 1.0		  % kd ks n
+
+	kd, ks, n, err := gml.Pop3[gml.VReal](state)
+	if err != nil {
+		return nil, err
+	}
+	surfaceColor, err := gml.PopValue[*prim.Vec3](state)
+	if err != nil {
+		return nil, err
+	}
+	m := &Material{
+		Color:            *surfaceColor,
+		Kd:               float64(kd),
+		Ks:               float64(ks),
+		SpecularExponent: float64(n),
+		// Reflectivity:     0.0,
+		// Transparency:     0.0,
+	}
+	return m, nil
+}
+
 func (sphere *Sphere) Intersect(ray *Ray) *Hit {
 	ray = rayToObjectSpace(*ray, &sphere.WorldToObject)
 
@@ -127,46 +160,7 @@ func computeSphereSurfaceMaterial(sphere *Sphere, point *prim.Vec3) (*Material, 
 	v := (point.Y + 1.0) / 2.0
 	u := math.Acos(point.Z/math.Sqrt(1.0-point.Y*point.Y)) / (2.0 * math.Pi)
 
-	// TODO: Might be simpler to just construct the token list:
-	//
-	// 0 u v sphere.EvalState.code apply
-	//
-	// And evaluate that
-
-	sphere.EvalState.Push(gml.VInt(0))
-	sphere.EvalState.Push(gml.VReal(u))
-	sphere.EvalState.Push(gml.VReal(v))
-
-	oldEnv := sphere.EvalState.Env
-	defer func() { sphere.EvalState.Env = oldEnv }()
-	sphere.EvalState.Env = sphere.SurfaceFn.Env
-
-	err := sphere.EvalState.Eval(sphere.SurfaceFn.Code)
-	if err != nil {
-		return nil, err
-	}
-
-	// x y z point        % surface color
-	// 1.0 0.2 1.0		  % kd ks n
-
-	kd, ks, n, err := gml.Pop3[gml.VReal](sphere.EvalState)
-	if err != nil {
-		return nil, err
-	}
-	surfaceColor, err := gml.PopValue[*prim.Vec3](sphere.EvalState)
-	if err != nil {
-		return nil, err
-	}
-	m := &Material{
-		Color:            *surfaceColor,
-		Kd:               float64(kd),
-		Ks:               float64(ks),
-		SpecularExponent: float64(n),
-		// Reflectivity:     0.0,
-		// Transparency:     0.0,
-	}
-	// fmt.Printf("surfaceMat: %+v\n", m)
-	return m, nil
+	return evalSurfaceFn(0, u, v, sphere.EvalState, *sphere.SurfaceFn)
 }
 
 func (v *Sphere) String() string {
@@ -176,24 +170,16 @@ func (v *Sphere) String() string {
 type Plane struct {
 	Normal        prim.Vec3
 	D             float64
+	NormalWorld   prim.Vec3
 	SurfaceFn     *gml.VClosure
 	EvalState     *gml.EvalState
 	WorldToObject prim.Mat4
-	NormalMat     prim.Mat4
-}
-
-// temporary, for testing
-var shinyMaterial = Material{
-	Color:            prim.RGB(0.8, 0.2, 0.2),
-	Ks:               0.8,
-	Kd:               1.0,
-	SpecularExponent: 50.0,
-	Transparency:     0.9,
-	RefractiveIndex:  1.5,
+	// We don't need NormalMat since we precompute NormalWorld
 }
 
 func (p *Plane) Intersect(ray *Ray) *Hit {
-	// TODO Need to convert ray to object space
+	ray = rayToObjectSpace(*ray, &p.WorldToObject)
+
 	denom := p.Normal.Dot(&ray.Direction)
 	if math.Abs(denom) < 1e-6 {
 		return nil
@@ -202,14 +188,37 @@ func (p *Plane) Intersect(ray *Ray) *Hit {
 	if t <= 0.0 {
 		return nil
 	}
-	// TODO: Compute surface function.
+	hitPoint := ray.Origin.Add(ray.Direction.Scale(t))
+	material, err := computePlaneSurfaceMaterial(p, hitPoint)
+	if err != nil {
+		// TODO: Render operation should be able to propagate an error.
+		fmt.Printf("Plane surfaceFn evaluation failed with error: %v\n", err)
+		return nil
+	}
 	return &Hit{
 		Object:   p,
 		T:        t,
 		Point:    ray.Origin.Add(ray.Direction.Scale(t)),
-		Normal:   &p.Normal,
-		Material: &shinyMaterial,
+		Normal:   &p.NormalWorld,
+		Material: material,
 	}
+}
+
+func computePlaneSurfaceMaterial(plane *Plane, point *prim.Vec3) (*Material, error) {
+	if plane.SurfaceFn == nil {
+		return nil, fmt.Errorf("plane has no SurfaceFn")
+	}
+	if plane.EvalState == nil {
+		return nil, fmt.Errorf("plane has no eval state")
+	}
+	// Need to pass the face (always 0) and u and v coordinates on the stack.
+	//
+	// (0, u, v) <=> (u, 0, v)
+
+	u := point.X
+	v := point.Z
+
+	return evalSurfaceFn(0, u, v, plane.EvalState, *plane.SurfaceFn)
 }
 
 func (p *Plane) String() string {
@@ -589,11 +598,21 @@ func convertGMLSceneObjects(sceneObjects []gml.SceneObject, evalState *gml.EvalS
 			// }
 			// result = append(result, cube)
 		case *gml.Plane:
+			var worldToObject prim.Mat4
+
+			if typedObject.TransformMat != nil {
+				worldToObject = *typedObject.TransformMat.Inverse()
+			} else {
+				worldToObject = prim.IdentityMatrix()
+			}
+
 			results = append(results, &Plane{
-				Normal:    typedObject.Plane.Normal,
-				D:         -typedObject.Plane.Normal.Dot(&typedObject.Plane.Point),
-				SurfaceFn: &typedObject.SurfaceFn,
-				EvalState: evalState,
+				Normal:        typedObject.Plane.Normal,
+				NormalWorld:   worldToObject.Transpose().MulDir(typedObject.Plane.Normal),
+				D:             -typedObject.Plane.Normal.Dot(&typedObject.Plane.Point),
+				SurfaceFn:     &typedObject.SurfaceFn,
+				EvalState:     evalState,
+				WorldToObject: worldToObject,
 			})
 		case *gml.Union:
 			// Right now we just flatten everything...

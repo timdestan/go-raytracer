@@ -3,6 +3,7 @@ package raytracer
 import (
 	"bytes"
 	"flag"
+	"fmt"
 	"image"
 	"image/png"
 	"os"
@@ -16,6 +17,14 @@ import (
 
 var updateFlag = flag.Bool("update_goldens", false, "If true, update goldens to current values.")
 
+func readImage(filename string) (image.Image, error) {
+	buf, err := os.ReadFile(filename)
+	if err != nil {
+		return nil, err
+	}
+	return png.Decode(bytes.NewReader(buf))
+}
+
 func writeImage(img image.Image, filename string) error {
 	f, err := os.Create(filename)
 	if err != nil {
@@ -25,70 +34,64 @@ func writeImage(img image.Image, filename string) error {
 	return png.Encode(f, img)
 }
 
-func compareImages(t *testing.T, got, want image.Image, goldenFilePath string) {
-	t.Helper()
-
-	if *updateFlag {
-		if err := writeImage(got, goldenFilePath); err != nil {
-			t.Errorf("Failed to update %s", goldenFilePath)
-		} else {
-			t.Logf("Wrote new golden to %s", goldenFilePath)
-		}
-		return
+func checkImages(got image.Image, goldenFilePath string) error {
+	want, err := readImage(goldenFilePath)
+	if err != nil {
+		return err
 	}
-
 	const minSSIM = 0.95
 	ssim, err := prim.SSIM(got, want)
 	if err != nil {
-		t.Fatalf("Error in SSIM computation: %v", err)
+		return fmt.Errorf("Error in SSIM computation: %v", err)
 	}
 	if ssim < minSSIM {
-		t.Errorf("SSIM is %f, want >= %f", ssim, minSSIM)
+		return fmt.Errorf("SSIM is %f, want >= %f", ssim, minSSIM)
 	}
+	return nil
 }
 
-//go:embed testdata/goldens/example_canned.png
-var goldenExampleCannedBytes []byte
+func compareImages(t *testing.T, got image.Image, goldenFilePath string) {
+	t.Helper()
+
+	err := checkImages(got, goldenFilePath)
+	if err == nil {
+		// To avoid version control churn, even if the update flag is on,
+		// we only update when the difference is large enough to trigger
+		// a failure here. We could add a --no_really_please_update flag
+		// if needed...
+		return
+	}
+	if !*updateFlag {
+		t.Fatal(err)
+	}
+
+	// Update the golden.
+	if err := writeImage(got, goldenFilePath); err != nil {
+		t.Errorf("Failed to update %s", goldenFilePath)
+	} else {
+		t.Logf("Wrote new golden to %s", goldenFilePath)
+	}
+}
 
 func TestRenderCannedScene(t *testing.T) {
 	got := Render(ExampleCannedScene(1920, 1200))
-
-	want, err := png.Decode(bytes.NewReader(goldenExampleCannedBytes))
-	if err != nil {
-		t.Fatalf("png.Decode: %v", err)
-	}
-	compareImages(t, got, want, "testdata/goldens/example_canned.png")
+	compareImages(t, got, "testdata/goldens/example_canned.png")
 }
-
-//go:embed testdata/goldens/example_sphere.png
-var goldenExampleSphereBytes []byte
-
-// TODO: Embed this
-var goldenExampleCubeBytes []byte
 
 func TestRenderSphere(t *testing.T) {
 	got, err := ParseAndRenderGML(gml.MustReadTestdataFile("testdata/sphere.gml"))
 	if err != nil {
 		t.Fatalf("ParseAndRenderGML: %v", err)
 	}
-	want, err := png.Decode(bytes.NewReader(goldenExampleSphereBytes))
-	if err != nil {
-		t.Fatalf("png.Decode: %v", err)
-	}
-	compareImages(t, got, want, "testdata/goldens/example_sphere.png")
+	compareImages(t, got, "testdata/goldens/example_sphere.png")
 }
 
 func TestRenderCube(t *testing.T) {
-	t.Skip("Cubes are WIP")
 	got, err := ParseAndRenderGML(gml.MustReadTestdataFile("testdata/cube.gml"))
 	if err != nil {
 		t.Fatalf("ParseAndRenderGML: %v", err)
 	}
-	want, err := png.Decode(bytes.NewReader(goldenExampleCubeBytes))
-	if err != nil {
-		t.Fatalf("png.Decode: %v", err)
-	}
-	compareImages(t, got, want, "testdata/goldens/example_cube.png")
+	compareImages(t, got, "testdata/goldens/example_cube.png")
 }
 
 // Run benchmarks with:

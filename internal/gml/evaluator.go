@@ -272,6 +272,14 @@ func (e *EvalState) Pop() (Value, error) {
 	return val, nil
 }
 
+// EvalClosure evaluates the code in the given closure, then restores the old environment.
+func (e *EvalState) EvalClosure(closure VClosure) error {
+	oldEnv := e.Env
+	defer func() { e.Env = oldEnv }()
+	e.Env = closure.Env
+	return e.Eval(closure.Code)
+}
+
 func PopValue[T Value](e *EvalState) (T, error) {
 	v, err := e.Pop()
 	if err != nil {
@@ -283,6 +291,18 @@ func PopValue[T Value](e *EvalState) (T, error) {
 		return zero, fmt.Errorf("type mismatch (evaluating %s): expected %T, got %v (%T)", TokenGroupDebugString(e.CurrToken), zero, v, v)
 	}
 	return derived, nil
+}
+
+func Pop2[T Value](e *EvalState) (T, T, error) {
+	var x, y T
+	var err error
+	if y, err = PopValue[T](e); err != nil {
+		return x, y, err
+	}
+	if x, err = PopValue[T](e); err != nil {
+		return x, y, err
+	}
+	return x, y, nil
 }
 
 func Pop3[T Value](e *EvalState) (T, T, T, error) {
@@ -325,28 +345,42 @@ func init() {
 		builtins[name] = &Builtin{Name: name, Func: f}
 	}
 
-	registerBuiltin("addi", addi)
+	registerBuiltin("addf", add[VReal])
+	registerBuiltin("addi", add[VInt])
 	registerBuiltin("apply", apply)
 	registerBuiltin("cube", cube)
-	registerBuiltin("sphere", sphere)
+	registerBuiltin("if", if_)
+	registerBuiltin("floor", floor)
+	registerBuiltin("frac", frac)
+	registerBuiltin("get", get)
+	registerBuiltin("lessi", less[VInt])
+	registerBuiltin("lessf", less[VReal])
+	registerBuiltin("negi", neg[VInt])
+	registerBuiltin("negf", neg[VReal])
 	registerBuiltin("plane", plane)
 	registerBuiltin("point", point)
 	registerBuiltin("pointlight", pointlight)
-	registerBuiltin("translate", translate)
-	registerBuiltin("uscale", uscale)
+	registerBuiltin("render", render)
 	registerBuiltin("rotatex", rotatex)
 	registerBuiltin("rotatey", rotatey)
 	registerBuiltin("rotatez", rotatez)
+	registerBuiltin("sphere", sphere)
+	registerBuiltin("translate", translate)
 	registerBuiltin("union", union)
-	registerBuiltin("render", render)
+	registerBuiltin("uscale", uscale)
 }
 
-func addi(e *EvalState) error {
-	a, err := PopValue[VInt](e)
+type numericValue interface {
+	~int | ~int64 | ~float64
+	Value
+}
+
+func add[VType numericValue](e *EvalState) error {
+	a, err := PopValue[VType](e)
 	if err != nil {
 		return err
 	}
-	b, err := PopValue[VInt](e)
+	b, err := PopValue[VType](e)
 	if err != nil {
 		return err
 	}
@@ -359,10 +393,7 @@ func apply(e *EvalState) error {
 	if err != nil {
 		return err
 	}
-	oldEnv := e.Env
-	defer func() { e.Env = oldEnv }()
-	e.Env = closure.Env
-	return e.Eval(closure.Code)
+	return e.EvalClosure(closure)
 }
 
 func point(e *EvalState) error {
@@ -436,6 +467,87 @@ func plane(e *EvalState) error {
 		SurfaceFn: surfaceFn,
 	})
 	return nil
+}
+
+func less[VType numericValue](e *EvalState) error {
+	x, y, err := Pop2[VType](e)
+	if err != nil {
+		return err
+	}
+	e.Push(VBool(x < y))
+	return nil
+}
+
+func neg[VType numericValue](e *EvalState) error {
+	x, err := PopValue[VType](e)
+	if err != nil {
+		return err
+	}
+	e.Push(-x)
+	return nil
+}
+
+func floor(e *EvalState) error {
+	x, err := PopValue[VReal](e)
+	if err != nil {
+		return err
+	}
+	e.Push(VInt(math.Floor(float64(x))))
+	return nil
+}
+
+// frac returns the fractional part of a real number.
+func frac(e *EvalState) error {
+	x, err := PopValue[VReal](e)
+	if err != nil {
+		return err
+	}
+	realPart := float64(int(x))
+	e.Push(x - VReal(realPart))
+	return nil
+}
+
+var ErrArrayIndexOutOfBounds = errors.New("array index out of bounds")
+
+// arr i get get's the i'th (zero-based) element of arr
+func get(e *EvalState) error {
+	i, err := PopValue[VInt](e)
+	if err != nil {
+		return err
+	}
+	arr, err := PopValue[VArray](e)
+	if err != nil {
+		return err
+	}
+	n := len(arr.Elements)
+	if i < 0 || int(i) >= n {
+		// We could just allow the Go bounds checking on slice access
+		// to fail but this seems more user-friendly.
+		return fmt.Errorf("%w: %d vs %d", ErrArrayIndexOutOfBounds, i, n)
+	}
+	e.Push(arr.Elements[i])
+	return nil
+}
+
+// if_ implements conditional evaluation.
+//
+// Example:
+//
+//	i 0.0 lessf { i negf 0.5 addf } { i } if
+func if_(e *EvalState) error {
+	trueClosure, falseClosure, err := Pop2[VClosure](e)
+	if err != nil {
+		return err
+	}
+	cond, err := PopValue[VBool](e)
+	if err != nil {
+		return err
+	}
+	closure := falseClosure
+	if cond {
+		closure = trueClosure
+	}
+	return e.EvalClosure(closure)
 }
 
 func translate(e *EvalState) error {

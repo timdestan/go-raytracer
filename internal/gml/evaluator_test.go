@@ -33,6 +33,30 @@ func TestSimpleEval(t *testing.T) {
 					f apply x addi`,
 			want: VInt(3),
 		},
+		{
+			name:    "frac",
+			program: `3.75 frac`,
+			want:    VReal(0.75),
+		},
+		{
+			name:    "frac (negative)",
+			program: `-3.75 frac`,
+			want:    VReal(-0.75),
+		},
+		{
+			name: "if (true)",
+			program: `
+				-1.0 /i
+				i 0.0 lessf { i negf 0.5 addf } { i } if`,
+			want: VReal(1.5),
+		},
+		{
+			name: "if (false)",
+			program: `
+				2.5 /i
+				i 0.0 lessf { i negf 0.5 addf } { i } if`,
+			want: VReal(2.5),
+		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			tokens, err := NewParser(tt.program).Parse()
