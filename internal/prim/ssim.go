@@ -2,7 +2,6 @@ package prim
 
 import (
 	"errors"
-	"fmt"
 	"image"
 	"math"
 	"sync"
@@ -72,14 +71,9 @@ func SSIM(img1, img2 image.Image) (float64, error) {
 	}()
 
 	for item := range ch {
-		if math.Abs(item.ssim) > float64(item.n) {
-			fmt.Printf("item: %+v\n", item)
-		}
 		sum += item.ssim
 		n += item.n
 	}
-
-	fmt.Printf("final: sum: %v, n: %v\n", sum, n)
 
 	return sum / float64(n), nil
 }

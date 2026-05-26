@@ -52,6 +52,8 @@ func (t LexemeType) String() string {
 type LexerToken struct {
 	Type    LexemeType
 	Literal string
+	Line    int
+	Col     int
 }
 
 type Lexer struct {
@@ -59,15 +61,23 @@ type Lexer struct {
 	pos     int
 	readPos int
 	ch      byte
+	line    int
+	col     int
 }
 
 func NewLexer(input string) *Lexer {
-	l := &Lexer{input: input}
+	l := &Lexer{input: input, line: 1}
 	l.readChar()
 	return l
 }
 
 func (l *Lexer) readChar() {
+	if l.ch == '\n' {
+		l.line++
+		l.col = 1
+	} else {
+		l.col++
+	}
 	if l.readPos >= len(l.input) {
 		l.ch = 0
 	} else {
@@ -79,46 +89,45 @@ func (l *Lexer) readChar() {
 
 // newToken returns a single byte token with the current
 // character and advances the lexer.
-func (l *Lexer) newToken(tokenType LexemeType) LexerToken {
-	tk := LexerToken{Type: tokenType, Literal: string(l.ch)}
+func (l *Lexer) newToken(tokenType LexemeType, line, col int) LexerToken {
+	tk := LexerToken{Type: tokenType, Literal: string(l.ch), Line: line, Col: col}
 	l.readChar()
 	return tk
 }
 
 func (l *Lexer) NextToken() LexerToken {
 	l.skipWhitespace()
+	line, col := l.line, l.col
 
 	switch l.ch {
 	case '{':
-		return l.newToken(TokenLCurly)
+		return l.newToken(TokenLCurly, line, col)
 	case '}':
-		return l.newToken(TokenRCurly)
+		return l.newToken(TokenRCurly, line, col)
 	case '[':
-		return l.newToken(TokenLBracket)
+		return l.newToken(TokenLBracket, line, col)
 	case ']':
-		return l.newToken(TokenRBracket)
+		return l.newToken(TokenRBracket, line, col)
 	case '/':
 		if isLetter(l.peekChar()) {
 			l.readChar()
 			literal := l.readIdentifier()
-			return LexerToken{Type: TokenBinder, Literal: "/" + literal}
+			return LexerToken{Type: TokenBinder, Literal: "/" + literal, Line: line, Col: col}
 		} else {
-			return l.newToken(TokenIllegal)
+			return l.newToken(TokenIllegal, line, col)
 		}
 	case '"':
 		literal, err := l.readString()
-		// l.readString leaves l.ch on the closing quote
-		l.readChar() // so we consume it
 		typ := TokenString
 		if err != nil {
 			typ = TokenIllegal
 		}
-		return LexerToken{Type: typ, Literal: literal}
+		return LexerToken{Type: typ, Literal: literal, Line: line, Col: col}
 	case '%':
 		l.skipComment()
 		return l.NextToken()
 	case 0:
-		return LexerToken{Type: TokenEOF, Literal: ""}
+		return LexerToken{Type: TokenEOF, Literal: "", Line: line, Col: col}
 	default:
 		if isLetter(l.ch) {
 			literal := l.readIdentifier()
@@ -128,12 +137,12 @@ func (l *Lexer) NextToken() LexerToken {
 			} else {
 				tokType = TokenIdent
 			}
-			return LexerToken{Type: tokType, Literal: literal}
+			return LexerToken{Type: tokType, Literal: literal, Line: line, Col: col}
 		} else if isDigit(l.ch) || l.ch == '-' {
 			literal, typ := l.readNumber()
-			return LexerToken{Type: typ, Literal: literal}
+			return LexerToken{Type: typ, Literal: literal, Line: line, Col: col}
 		} else {
-			return l.newToken(TokenIllegal)
+			return l.newToken(TokenIllegal, line, col)
 		}
 	}
 }
@@ -215,6 +224,7 @@ func (l *Lexer) readString() (string, error) {
 		}
 		l.readChar()
 	}
+	l.readChar() // closing quote
 	return sb.String(), err
 }
 

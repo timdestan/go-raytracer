@@ -4,7 +4,12 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 )
+
+// ignoreTokenPos excludes Line/Col from LexerToken comparisons so existing
+// tests don't need to enumerate expected positions.
+var ignoreTokenPos = cmpopts.IgnoreFields(LexerToken{}, "Line", "Col")
 
 func readAllTokens(input string) []LexerToken {
 	l := NewLexer(input)
@@ -23,7 +28,7 @@ func TestLexEmptyString(t *testing.T) {
 	input := ""
 	want := []LexerToken{{Type: TokenEOF, Literal: ""}}
 	got := readAllTokens(input)
-	if diff := cmp.Diff(got, want); diff != "" {
+	if diff := cmp.Diff(got, want, ignoreTokenPos); diff != "" {
 		t.Errorf("token mismatch (-got +want):\n%s", diff)
 	}
 }
@@ -40,7 +45,7 @@ func TestLexScientificNotation(t *testing.T) {
 			{Type: TokenEOF, Literal: ""},
 		}
 		got := readAllTokens(input)
-		if diff := cmp.Diff(got, want); diff != "" {
+		if diff := cmp.Diff(got, want, ignoreTokenPos); diff != "" {
 			t.Errorf("token mismatch (-got +want):\n%s", diff)
 		}
 	}
@@ -55,7 +60,7 @@ func TestIllegalStringEscape(t *testing.T) {
 
 	got := readAllTokens(input)
 
-	if diff := cmp.Diff(got, want); diff != "" {
+	if diff := cmp.Diff(got, want, ignoreTokenPos); diff != "" {
 		t.Errorf("token mismatch (-got +want):\n%s", diff)
 	}
 }
@@ -294,9 +299,23 @@ func TestLexExamples(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := readAllTokens(tt.input)
-			if diff := cmp.Diff(got, tt.want); diff != "" {
+			if diff := cmp.Diff(got, tt.want, ignoreTokenPos); diff != "" {
 				t.Errorf("token mismatch (-got +want):\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestTokenPositions(t *testing.T) {
+	// Verify line and column numbers without ignoring the position fields.
+	got := readAllTokens("foo /bar\n%line with only comment\n123")
+	want := []LexerToken{
+		{Type: TokenIdent, Literal: "foo", Line: 1, Col: 1},
+		{Type: TokenBinder, Literal: "/bar", Line: 1, Col: 5},
+		{Type: TokenInt, Literal: "123", Line: 3, Col: 1},
+		{Type: TokenEOF, Literal: "", Line: 3, Col: 4},
+	}
+	if diff := cmp.Diff(got, want); diff != "" {
+		t.Errorf("position mismatch (-got +want):\n%s", diff)
 	}
 }

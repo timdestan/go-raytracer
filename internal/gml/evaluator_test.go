@@ -9,7 +9,57 @@ import (
 	"github.com/google/go-cmp/cmp"
 )
 
+func evalError(t *testing.T, program string) error {
+	t.Helper()
+	tl, err := NewParser(program).Parse()
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	err = NewEvalState().Eval(tl)
+	if err == nil {
+		t.Fatal("expected an eval error, got nil")
+	}
+	return err
+}
+
 var flagUpdate = flag.Bool("update", false, "If true, update the expected renderarg outputs")
+
+// TestEvalErrorPositions verifies that evaluator errors include the source position
+// of the token that caused the failure.
+func TestEvalErrorPositions(t *testing.T) {
+	tests := []struct {
+		name        string
+		program     string
+		wantPrefix  string
+	}{
+		{
+			// addi is on line 3; popping VReal where VInt is expected
+			name:       "type mismatch on line 3",
+			program:    "1\n2.0\naddi",
+			wantPrefix: "3:1:",
+		},
+		{
+			// unbound identifier is on line 2, col 3
+			name:       "unbound identifier",
+			program:    "1 /x\n1 missing",
+			wantPrefix: "2:3:",
+		},
+		{
+			// empty stack: the lonely addi has nothing to pop
+			name:       "empty stack",
+			program:    "addi",
+			wantPrefix: "1:1:",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := evalError(t, tt.program)
+			if !strings.HasPrefix(err.Error(), tt.wantPrefix) {
+				t.Errorf("error %q does not start with %q", err.Error(), tt.wantPrefix)
+			}
+		})
+	}
+}
 
 // TestSimpleEval tests some simple cases with no render call.
 func TestSimpleEval(t *testing.T) {

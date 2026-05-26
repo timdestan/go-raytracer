@@ -7,6 +7,15 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 )
 
+// ignoreNodePos excludes the Pos field from all AST node comparisons so
+// existing tests don't need to enumerate expected source positions.
+var ignoreNodePos = cmp.FilterPath(func(p cmp.Path) bool {
+	if sf, ok := p.Last().(cmp.StructField); ok {
+		return sf.Name() == "Pos"
+	}
+	return false
+}, cmp.Ignore())
+
 func TestParseExamples(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -143,7 +152,7 @@ func TestParseExamples(t *testing.T) {
 			if err != nil {
 				t.Errorf("Parse() error = %v", err)
 			}
-			if diff := cmp.Diff(got, tt.want, cmpopts.EquateEmpty()); diff != "" {
+			if diff := cmp.Diff(got, tt.want, cmpopts.EquateEmpty(), ignoreNodePos); diff != "" {
 				t.Errorf("Parse() mismatch (-got +want):\n%s", diff)
 			}
 		})
@@ -155,7 +164,36 @@ func TestParseScientificNotation(t *testing.T) {
 	if err != nil {
 		t.Errorf("Parse() error = %v", err)
 	}
-	if diff := cmp.Diff(got, tokens(1.0e3)); diff != "" {
+	if diff := cmp.Diff(got, tokens(1.0e3), ignoreNodePos); diff != "" {
 		t.Errorf("Parse() mismatch (-got +want):\n%s", diff)
 	}
+}
+
+func TestParsePositions(t *testing.T) {
+	assertPos := func(t *testing.T, label string, node TokenGroup, want Pos) {
+		t.Helper()
+		if got := node.Position(); got != want {
+			t.Errorf("%s: got position %v, want %v", label, got, want)
+		}
+	}
+
+	// Line 1: foo identifier
+	// Line 2: /bar binder
+	// Line 3: { baz } function — opening brace at col 1, baz at col 3
+	tl, err := NewParser("foo\n/bar\n{ baz }").Parse()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tl) != 3 {
+		t.Fatalf("expected 3 tokens, got %d", len(tl))
+	}
+	assertPos(t, "foo", tl[0], Pos{Line: 1, Col: 1})
+	assertPos(t, "/bar", tl[1], Pos{Line: 2, Col: 1})
+	assertPos(t, "{ baz }", tl[2], Pos{Line: 3, Col: 1})
+
+	fn, ok := tl[2].(*Function)
+	if !ok {
+		t.Fatalf("expected *Function, got %T", tl[2])
+	}
+	assertPos(t, "baz", fn.Body[0], Pos{Line: 3, Col: 3})
 }

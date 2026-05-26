@@ -186,14 +186,18 @@ func (p PointLight) String() string {
 	return fmt.Sprintf("PointLight(pos=%v, color=%v)", p.Position, p.Color)
 }
 
+var (
+	ErrEmptyStack            = errors.New("empty stack")
+	ErrUnboundIdentifier     = errors.New("unbound identifier")
+	ErrNotImplemented        = errors.New("not implemented")
+	ErrArrayIndexOutOfBounds = errors.New("array index out of bounds")
+)
+
 func NewEvalState() *EvalState {
 	return &EvalState{
 		Env: make(map[string]Value),
 	}
 }
-
-var ErrEmptyStack = errors.New("empty stack")
-var ErrUnboundIdentifier = errors.New("unbound identifier")
 
 func (e *EvalState) Eval(program TokenList) error {
 	for _, token := range program {
@@ -242,7 +246,7 @@ func (e *EvalState) evalOneStep(token TokenGroup) error {
 		if val, ok := e.Env[token.Name]; ok {
 			e.Push(val)
 		} else {
-			return fmt.Errorf("%w: %s", ErrUnboundIdentifier, token.Name)
+			return fmt.Errorf("%s%w: %s", token.Pos.prefix(), ErrUnboundIdentifier, token.Name)
 		}
 	case *Array:
 		oldStack := e.Stack
@@ -265,7 +269,8 @@ func (e *EvalState) Push(value Value) {
 
 func (e *EvalState) Pop() (Value, error) {
 	if len(e.Stack) == 0 {
-		return nil, fmt.Errorf("%w: token: %v", ErrEmptyStack, TokenGroupDebugString(e.CurrToken))
+		pos := e.CurrToken.Position()
+		return nil, fmt.Errorf("%s%w: token: %v", pos.prefix(), ErrEmptyStack, TokenGroupDebugString(e.CurrToken))
 	}
 	val := e.Stack[len(e.Stack)-1]
 	e.Stack = e.Stack[:len(e.Stack)-1]
@@ -288,7 +293,8 @@ func PopValue[T Value](e *EvalState) (T, error) {
 	derived, ok := v.(T)
 	if !ok {
 		zero := *new(T)
-		return zero, fmt.Errorf("type mismatch (evaluating %s): expected %T, got %v (%T)", TokenGroupDebugString(e.CurrToken), zero, v, v)
+		pos := e.CurrToken.Position()
+		return zero, fmt.Errorf("%stype mismatch (evaluating %s): expected %T, got %v (%T)", pos.prefix(), TokenGroupDebugString(e.CurrToken), zero, v, v)
 	}
 	return derived, nil
 }
@@ -327,11 +333,9 @@ type Builtin struct {
 	Func func(*EvalState) error
 }
 
-var errNotImplemented = errors.New("not implemented")
-
 func (b Builtin) Run(e *EvalState) error {
 	if b.Func == nil {
-		return fmt.Errorf("%w: %s", errNotImplemented, b.Name)
+		return fmt.Errorf("%w: %s", ErrNotImplemented, b.Name)
 	}
 	return b.Func(e)
 }
@@ -506,8 +510,6 @@ func frac(e *EvalState) error {
 	e.Push(x - VReal(realPart))
 	return nil
 }
-
-var ErrArrayIndexOutOfBounds = errors.New("array index out of bounds")
 
 // arr i get get's the i'th (zero-based) element of arr
 func get(e *EvalState) error {

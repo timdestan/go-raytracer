@@ -26,7 +26,7 @@ func (p *Parser) Parse() (TokenList, error) {
 		return nil, err
 	}
 	if p.curr.Type != TokenEOF {
-		return nil, fmt.Errorf("unexpected token: %s, expected end of input", p.curr.Type)
+		return nil, fmt.Errorf("%d:%d: unexpected token: %s, expected end of input", p.curr.Line, p.curr.Col, p.curr.Type)
 	}
 	return l, nil
 }
@@ -39,7 +39,7 @@ func (p *Parser) readAndAdvanceToken() LexerToken {
 
 func (p *Parser) consume(tokenType LexemeType) error {
 	if p.curr.Type != tokenType {
-		return fmt.Errorf("expected %s, got %s", tokenType, p.curr.Type)
+		return fmt.Errorf("%d:%d: expected %s, got %s", p.curr.Line, p.curr.Col, tokenType, p.curr.Type)
 	}
 	p.readAndAdvanceToken()
 	return nil
@@ -105,19 +105,21 @@ func (p *Parser) parseTokenGroup() (TokenGroup, error) {
 func (p *Parser) parseSingleToken() (TokenGroup, error) {
 	switch p.currToken().Type {
 	case TokenIdent:
-		return &Identifier{Name: p.readAndAdvanceToken().Literal}, nil
+		tok := p.readAndAdvanceToken()
+		return &Identifier{Name: tok.Literal, Pos: Pos{Line: tok.Line, Col: tok.Col}}, nil
 	case TokenInt:
 		return p.parseIntLiteral()
 	case TokenFloat:
 		return p.parseFloatLiteral()
 	case TokenString:
-		return &StringLiteral{Value: p.readAndAdvanceToken().Literal}, nil
+		tok := p.readAndAdvanceToken()
+		return &StringLiteral{Value: tok.Literal, Pos: Pos{Line: tok.Line, Col: tok.Col}}, nil
 	case TokenBinder:
 		return p.parseBinder()
 	case TokenBoolean:
 		return p.parseBooleanLiteral()
 	default:
-		return nil, fmt.Errorf("unexpected token: %s", p.currToken().Type)
+		return nil, fmt.Errorf("%d:%d: unexpected token: %s", p.curr.Line, p.curr.Col, p.currToken().Type)
 	}
 }
 
@@ -125,39 +127,40 @@ func (p *Parser) parseBinder() (*Binder, error) {
 	token := p.readAndAdvanceToken()
 	name := token.Literal
 	if !strings.HasPrefix(name, "/") {
-		return nil, fmt.Errorf("binder must start with /, got %s", token.Type)
+		return nil, fmt.Errorf("%d:%d: binder must start with /, got %s", token.Line, token.Col, token.Type)
 	}
-	return &Binder{Name: name[1:]}, nil
+	return &Binder{Name: name[1:], Pos: Pos{Line: token.Line, Col: token.Col}}, nil
 }
 
 func (p *Parser) parseFloatLiteral() (TokenGroup, error) {
 	token := p.readAndAdvanceToken()
 	val, err := strconv.ParseFloat(token.Literal, 64)
 	if err != nil {
-		return nil, fmt.Errorf("could not parse number: %s", token.Literal)
+		return nil, fmt.Errorf("%d:%d: could not parse number: %s", token.Line, token.Col, token.Literal)
 	}
-	return &FloatLiteral{Value: val}, nil
+	return &FloatLiteral{Value: val, Pos: Pos{Line: token.Line, Col: token.Col}}, nil
 }
 
 func (p *Parser) parseIntLiteral() (TokenGroup, error) {
 	token := p.readAndAdvanceToken()
 	val, err := strconv.ParseInt(token.Literal, 10, 64)
 	if err != nil {
-		return nil, fmt.Errorf("could not parse number: %s", token.Literal)
+		return nil, fmt.Errorf("%d:%d: could not parse number: %s", token.Line, token.Col, token.Literal)
 	}
-	return &IntLiteral{Value: val}, nil
+	return &IntLiteral{Value: val, Pos: Pos{Line: token.Line, Col: token.Col}}, nil
 }
 
 func (p *Parser) parseBooleanLiteral() (TokenGroup, error) {
 	token := p.readAndAdvanceToken()
 	val, err := strconv.ParseBool(token.Literal)
 	if err != nil {
-		return nil, fmt.Errorf("could not parse boolean: %s", token.Literal)
+		return nil, fmt.Errorf("%d:%d: could not parse boolean: %s", token.Line, token.Col, token.Literal)
 	}
-	return &BoolLiteral{Value: val}, nil
+	return &BoolLiteral{Value: val, Pos: Pos{Line: token.Line, Col: token.Col}}, nil
 }
 
 func (p *Parser) parseArray() (TokenGroup, error) {
+	pos := Pos{Line: p.curr.Line, Col: p.curr.Col}
 	if err := p.consume(TokenLBracket); err != nil {
 		return nil, err
 	}
@@ -168,10 +171,11 @@ func (p *Parser) parseArray() (TokenGroup, error) {
 	if err := p.consume(TokenRBracket); err != nil {
 		return nil, err
 	}
-	return &Array{Elements: l}, nil
+	return &Array{Elements: l, Pos: pos}, nil
 }
 
 func (p *Parser) parseFunction() (TokenGroup, error) {
+	pos := Pos{Line: p.curr.Line, Col: p.curr.Col}
 	if err := p.consume(TokenLCurly); err != nil {
 		return nil, err
 	}
@@ -182,5 +186,5 @@ func (p *Parser) parseFunction() (TokenGroup, error) {
 	if err := p.consume(TokenRCurly); err != nil {
 		return nil, err
 	}
-	return &Function{Body: l}, nil
+	return &Function{Body: l, Pos: pos}, nil
 }

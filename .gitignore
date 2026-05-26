@@ -7,3 +7,5 @@ output/*
 # profiler output
 *.prof
 profile*.svg
+
+.claude/
