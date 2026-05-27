@@ -15,7 +15,7 @@ import (
 	_ "embed"
 )
 
-var updateFlag = flag.Bool("update_goldens", false, "If true, update goldens to current values.")
+var updateFlag = flag.Bool("update", false, "If true, update goldens to current values.")
 
 func readImage(filename string) (image.Image, error) {
 	buf, err := os.ReadFile(filename)

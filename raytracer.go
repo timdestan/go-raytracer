@@ -36,13 +36,13 @@ type Material struct {
 type Hit struct {
 	Object   SceneObject
 	T        float64
-	Point    *prim.Vec3
-	Normal   *prim.Vec3
+	Point    prim.Vec3
+	Normal   prim.Vec3
 	Material *Material
 }
 
 type SceneObject interface {
-	Intersect(ray *Ray) *Hit
+	Intersect(ray Ray) *Hit
 }
 
 type Sphere struct {
@@ -55,11 +55,11 @@ type Sphere struct {
 	NormalMat     prim.Mat4
 }
 
-func rayToObjectSpace(ray Ray, worldToObject *prim.Mat4) *Ray {
+func rayToObjectSpace(ray Ray, worldToObject *prim.Mat4) Ray {
 	var localRay Ray
 	localRay.Origin = worldToObject.MulPoint(ray.Origin)
 	localRay.Direction = worldToObject.MulDir(ray.Direction)
-	return &localRay
+	return localRay
 }
 
 func evalSurfaceFn(face int, u, v float64, state *gml.EvalState, closure gml.VClosure) (*Material, error) {
@@ -95,11 +95,11 @@ func evalSurfaceFn(face int, u, v float64, state *gml.EvalState, closure gml.VCl
 	return m, nil
 }
 
-func (sphere *Sphere) Intersect(ray *Ray) *Hit {
-	ray = rayToObjectSpace(*ray, &sphere.WorldToObject)
+func (sphere *Sphere) Intersect(ray Ray) *Hit {
+	ray = rayToObjectSpace(ray, &sphere.WorldToObject)
 
-	L := sphere.Center.Sub(&ray.Origin)
-	t_ca := L.Dot(&ray.Direction)
+	L := sphere.Center.Sub(ray.Origin)
+	t_ca := L.Dot(ray.Direction)
 	if t_ca < 0.0 {
 		// Center of the sphere is behind the screen.
 		return nil
@@ -114,7 +114,7 @@ func (sphere *Sphere) Intersect(ray *Ray) *Hit {
 			fmt.Printf("Sphere surfaceFn evaluation failed with error: %v\n", err)
 			return nil
 		}
-		normalDir := sphere.NormalMat.MulDir(*hitPoint.Sub(&sphere.Center))
+		normalDir := sphere.NormalMat.MulDir(hitPoint.Sub(sphere.Center))
 
 		return &Hit{
 			Object:   sphere,
@@ -132,7 +132,7 @@ func (sphere *Sphere) Intersect(ray *Ray) *Hit {
 	return nil
 }
 
-func computeSphereSurfaceMaterial(sphere *Sphere, point *prim.Vec3) (*Material, error) {
+func computeSphereSurfaceMaterial(sphere *Sphere, point prim.Vec3) (*Material, error) {
 	if sphere.SurfaceFn == nil {
 		return &sphere.Material, nil
 	}
@@ -177,14 +177,14 @@ type Plane struct {
 	// We don't need NormalMat since we precompute NormalWorld
 }
 
-func (p *Plane) Intersect(ray *Ray) *Hit {
-	ray = rayToObjectSpace(*ray, &p.WorldToObject)
+func (p *Plane) Intersect(ray Ray) *Hit {
+	ray = rayToObjectSpace(ray, &p.WorldToObject)
 
-	denom := p.Normal.Dot(&ray.Direction)
+	denom := p.Normal.Dot(ray.Direction)
 	if math.Abs(denom) < 1e-6 {
 		return nil
 	}
-	t := (-p.D - p.Normal.Dot(&ray.Origin)) / denom
+	t := (-p.D - p.Normal.Dot(ray.Origin)) / denom
 	if t <= 0.0 {
 		return nil
 	}
@@ -199,12 +199,12 @@ func (p *Plane) Intersect(ray *Ray) *Hit {
 		Object:   p,
 		T:        t,
 		Point:    ray.Origin.Add(ray.Direction.Scale(t)),
-		Normal:   &p.NormalWorld,
+		Normal:   p.NormalWorld,
 		Material: material,
 	}
 }
 
-func computePlaneSurfaceMaterial(plane *Plane, point *prim.Vec3) (*Material, error) {
+func computePlaneSurfaceMaterial(plane *Plane, point prim.Vec3) (*Material, error) {
 	if plane.SurfaceFn == nil {
 		return nil, fmt.Errorf("plane has no SurfaceFn")
 	}
@@ -231,7 +231,7 @@ type Cube struct {
 	// Material not supported
 }
 
-func (c *Cube) Intersect(ray *Ray) *Hit {
+func (c *Cube) Intersect(ray Ray) *Hit {
 	// TODO:
 	// To handle cases where the cube is not axis aligned, we need
 	// to apply the inverse transform of the cube (inverse rotation + translation)
@@ -261,7 +261,7 @@ func (c *Cube) Intersect(ray *Ray) *Hit {
 
 }
 
-func computeLighting(hit *Hit, scene *Scene, ray *Ray) *prim.Vec3 {
+func computeLighting(hit *Hit, scene *Scene, ray Ray) prim.Vec3 {
 	V := ray.Direction.Neg() // view vector = opposite of ray
 
 	mat := hit.Material
@@ -285,7 +285,7 @@ func computeLighting(hit *Hit, scene *Scene, ray *Ray) *prim.Vec3 {
 		spec := math.Max(0, hit.Normal.Dot(H))
 		specular := light.Color.Scale(mat.Ks * math.Pow(spec, mat.SpecularExponent))
 
-		result.AddI(diffuse).AddI(specular)
+		result = result.Add(diffuse).Add(specular)
 	}
 
 	return result
@@ -299,10 +299,10 @@ func computeLighting(hit *Hit, scene *Scene, ray *Ray) *prim.Vec3 {
 // the intersection with the current sphere is not counted.
 //
 // lightDir is assumed to be a normal vector.
-func inShadow(hit *Hit, scene *Scene, lightDir *prim.Vec3, distToLight float64, ray *Ray) bool {
+func inShadow(hit *Hit, scene *Scene, lightDir prim.Vec3, distToLight float64, ray Ray) bool {
 	const epsilon = 1e-4
 	shadowOrigin := hit.Point.Add(hit.Normal.Scale(epsilon))
-	shadowRay := &Ray{Origin: *shadowOrigin, Direction: *lightDir}
+	shadowRay := Ray{Origin: shadowOrigin, Direction: lightDir}
 	for _, obj := range scene.Objects {
 		if obj == hit.Object {
 			continue
@@ -324,15 +324,16 @@ func inShadow(hit *Hit, scene *Scene, lightDir *prim.Vec3, distToLight float64, 
 // `normal` is the normal vector of the surface at the hit point.
 // `n1` is the refractive index of the medium the ray is leaving.
 // `n2` is the refractive index of the medium the ray is entering.
-// The function returns the refracted direction or nil if no refraction occurs.
-func refract(incident, normal *prim.Vec3, n1, n2 float64) *prim.Vec3 {
+//
+// The function returns the refracted direction or empty vector if no refraction occurs.
+func refract(incident, normal prim.Vec3, n1, n2 float64) prim.Vec3 {
 	ratio := n1 / n2
 	cosI := -normal.Dot(incident)
 	sinT2 := ratio * ratio * (1.0 - cosI*cosI)
 
 	// Check for total internal reflection
 	if sinT2 > 1.0 {
-		return nil
+		return prim.Vec3{}
 	}
 
 	cosT := math.Sqrt(1.0 - sinT2)
@@ -343,7 +344,7 @@ func refract(incident, normal *prim.Vec3, n1, n2 float64) *prim.Vec3 {
 // normal: surface normal (unit vector)
 // incident: incoming ray direction (unit vector, pointing INTO the surface)
 // ior: index of refraction of the material
-func fresnel(normal, incident *prim.Vec3, ior float64) float64 {
+func fresnel(normal, incident prim.Vec3, ior float64) float64 {
 	// cosi := clamp(-1, 1, incident.Dot(normal))
 	cosi := incident.CosineSimilarity(normal)
 	etai, etat := 1.0, ior // assume ray is coming from air (n=1)
@@ -356,7 +357,7 @@ func fresnel(normal, incident *prim.Vec3, ior float64) float64 {
 	return r0 + (1-r0)*math.Pow(1-cost, 5) // Schlick's approximation
 }
 
-func closestHit(scene *Scene, ray *Ray) *Hit {
+func closestHit(scene *Scene, ray Ray) *Hit {
 	var minHit *Hit
 	for _, obj := range scene.Objects {
 		hit := obj.Intersect(ray)
@@ -372,27 +373,27 @@ func closestHit(scene *Scene, ray *Ray) *Hit {
 
 // traceRay returns the color of the closest sphere hit by the ray, or nil
 // if no sphere is hit.
-func traceRay(scene *Scene, ray *Ray, depth int) *prim.Vec3 {
+func traceRay(scene *Scene, ray Ray, depth int) prim.Vec3 {
 	if depth <= 0 {
 		// Recursion limit
-		return &prim.Vec3{}
+		return prim.Vec3{}
 	}
 	hit := closestHit(scene, ray)
 	if hit == nil {
 		// Calculate background color (linear gradient).
 		t := 0.5 * (ray.Direction.Y + 1.0)
-		return scene.BgColorStart.LerpI(&scene.BgColorEnd, t)
+		return scene.BgColorStart.Lerp(scene.BgColorEnd, t)
 	}
 
 	surfaceColor := computeLighting(hit, scene, ray)
 
 	mat := hit.Material
 	if mat.Reflectivity == 0 && mat.Transparency == 0 {
-		return surfaceColor.ClampI()
+		return surfaceColor.Clamp()
 	}
 
 	// Handle reflection and transparency based on material properties
-	reflectedColor := &prim.Vec3{}
+	reflectedColor := prim.Vec3{}
 	if mat.Reflectivity > 0 {
 		// For fuzzy reflections, add a random component to the reflection direction.
 		fuzz := mat.Fuzziness
@@ -404,13 +405,13 @@ func traceRay(scene *Scene, ray *Ray, depth int) *prim.Vec3 {
 			Z: 0,
 		}
 		reflectionRay := Ray{
-			Origin:    *hit.Point.Add(hit.Normal.Scale(1e-4)),
-			Direction: *reflectedDir.Add(randomVector.Scale(fuzz)).Normalize(),
+			Origin:    hit.Point.Add(hit.Normal.Scale(1e-4)),
+			Direction: reflectedDir.Add(randomVector.Scale(fuzz)).Normalize(),
 		}
-		reflectedColor = traceRay(scene, &reflectionRay, depth-1)
+		reflectedColor = traceRay(scene, reflectionRay, depth-1)
 	}
 
-	refractedColor := &prim.Vec3{}
+	refractedColor := prim.Vec3{}
 	if mat.Transparency > 0 {
 		// This assumes the outer medium is air.
 		n1 := 1.0
@@ -426,18 +427,18 @@ func traceRay(scene *Scene, ray *Ray, depth int) *prim.Vec3 {
 			normal = normal.Scale(-1.0)
 		}
 
-		refractedDir := refract(&ray.Direction, normal, n1, n2)
+		refractedDir := refract(ray.Direction, normal, n1, n2)
 
-		if refractedDir != nil {
+		if !refractedDir.IsZero() {
 			// Create the refracted ray. We offset the origin slightly to avoid self-intersection.
-			refractedRay := Ray{Origin: *hit.Point.Sub(normal.Scale(1e-4)), Direction: *refractedDir}
+			refractedRay := Ray{Origin: hit.Point.Sub(normal.Scale(1e-4)), Direction: refractedDir}
 
 			// Recursively trace the refracted ray
-			refractedColor = traceRay(scene, &refractedRay, depth-1)
+			refractedColor = traceRay(scene, refractedRay, depth-1)
 		}
 	}
-	kr := fresnel(hit.Normal, &ray.Direction, mat.RefractiveIndex)
-	return surfaceColor.Scale(1.0 - mat.Transparency).AddI(reflectedColor.Scale(kr).AddI(refractedColor.Scale(1.0 - kr))).ClampI()
+	kr := fresnel(hit.Normal, ray.Direction, mat.RefractiveIndex)
+	return surfaceColor.Scale(1.0 - mat.Transparency).Add(reflectedColor.Scale(kr).Add(refractedColor.Scale(1.0 - kr))).Clamp()
 }
 
 func square(x float64) float64 {
@@ -478,7 +479,7 @@ func Render(scene *Scene) image.Image {
 	viewportWidth := 2.0 / math.Tan(fovRadians/2.0)
 	viewportHeight := viewportWidth * (float64(scene.HeightPx) / float64(scene.WidthPx))
 
-	eyePosition := &prim.Vec3{
+	eyePosition := prim.Vec3{
 		X: 0.0,
 		Y: 0.0,
 		Z: -1.0,
@@ -487,7 +488,7 @@ func Render(scene *Scene) image.Image {
 	for x := range scene.WidthPx {
 		for y := range scene.HeightPx {
 			// Subsample for antialiasing
-			totalColor := &prim.Vec3{}
+			totalColor := prim.Vec3{}
 			const numSamples = 4
 			for range numSamples {
 				// Map pixel coordinates to world coordinates.
@@ -498,10 +499,9 @@ func Render(scene *Scene) image.Image {
 
 				var ray Ray
 				ray.Origin = prim.Vec3{X: u, Y: -v, Z: 0.0} // screen point
-				ray.Direction = *ray.Origin.Sub(eyePosition).Normalize()
+				ray.Direction = ray.Origin.Sub(eyePosition).Normalize()
 
-				color := traceRay(scene, &ray, recursionLimit)
-				totalColor.AddI(color)
+				totalColor = totalColor.Add(traceRay(scene, ray, recursionLimit))
 			}
 			img.Set(x, y, totalColor.Scale(1.0/float64(numSamples)))
 		}
@@ -609,7 +609,7 @@ func convertGMLSceneObjects(sceneObjects []gml.SceneObject, evalState *gml.EvalS
 			results = append(results, &Plane{
 				Normal:        typedObject.Plane.Normal,
 				NormalWorld:   worldToObject.Transpose().MulDir(typedObject.Plane.Normal),
-				D:             -typedObject.Plane.Normal.Dot(&typedObject.Plane.Point),
+				D:             -typedObject.Plane.Normal.Dot(typedObject.Plane.Point),
 				SurfaceFn:     &typedObject.SurfaceFn,
 				EvalState:     evalState,
 				WorldToObject: worldToObject,

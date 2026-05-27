@@ -30,7 +30,7 @@ func TestNormalizeSimple(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.v.String(), func(t *testing.T) {
 			got := tt.v.Normalize()
-			if diff := cmp.Diff(got, &tt.want, approxOpts); diff != "" {
+			if diff := cmp.Diff(got, tt.want, approxOpts); diff != "" {
 				t.Errorf("Vec3.Normalize() mismatch (-got +want):\n%s", diff)
 			}
 		})

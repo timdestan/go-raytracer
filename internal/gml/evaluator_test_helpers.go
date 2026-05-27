@@ -11,7 +11,7 @@ import (
 
 // SplitLines splits a string by lines, supporting LF and CRLF
 func SplitLines(line string) []string {
-	return strings.Split(strings.Replace(line, "\r\n", "\n", -1), "\n")
+	return strings.Split(strings.ReplaceAll(line, "\r\n", "\n"), "\n")
 }
 
 func RenderArgsToLines(args *RenderArgs) []string {

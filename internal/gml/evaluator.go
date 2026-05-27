@@ -563,7 +563,7 @@ func translate(e *EvalState) error {
 	if err != nil {
 		return err
 	}
-	e.Push(s.Transform(prim.Mat4Translate(&prim.Vec3{
+	e.Push(s.Transform(prim.Mat4Translate(prim.Vec3{
 		X: float64(x),
 		Y: float64(y),
 		Z: float64(z),
