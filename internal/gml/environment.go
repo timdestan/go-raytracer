@@ -56,13 +56,25 @@ func (env *Environment) Clone() Environment {
 }
 
 func (env *Environment) String() string {
+	return env.mkString(func(b Binding) string {
+		return b.String()
+	})
+}
+
+func (env *Environment) DebugString(idMapping *IDMapping) string {
+	return env.mkString(func(b Binding) string {
+		return b.DebugString(idMapping)
+	})
+}
+
+func (env *Environment) mkString(fmtBinding func(Binding) string) string {
 	var sb strings.Builder
 	sb.WriteByte('{')
 	for i, b := range env.Bindings() {
-		if i == 0 {
+		if i > 0 {
 			sb.WriteString(", ")
 		}
-		sb.WriteString(b.String())
+		sb.WriteString(fmtBinding(b))
 	}
 	sb.WriteByte('}')
 	return sb.String()

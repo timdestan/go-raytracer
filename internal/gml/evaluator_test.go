@@ -63,6 +63,7 @@ func TestSimpleEval(t *testing.T) {
 		name    string
 		program string
 		want    Value // expected top of stack
+		debug   bool
 	}
 	for _, tt := range []testCase{
 		{
@@ -103,9 +104,20 @@ func TestSimpleEval(t *testing.T) {
 				i 0.0 lessf { i negf 0.5 addf } { i } if`,
 			want: VReal(2.5),
 		},
+		{
+			name: "env preserved",
+			program: `
+				1 /i
+				{ i /j /i i j addi } /f
+				2 f apply  % stack: 3
+				f apply    % stack: 4 
+				`,
+			want: VInt(4),
+		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			st := NewEvalState()
+			st.Debug = tt.debug
 			err := st.ParseAndEval(tt.program)
 			if err != nil {
 				t.Errorf("eval error: %v", err)

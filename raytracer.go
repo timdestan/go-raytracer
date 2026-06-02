@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"log"
 	"math"
 	"math/rand"
 
@@ -472,7 +473,7 @@ func Render(scene *Scene) image.Image {
 	}
 
 	if scene.Fov <= 0.0 {
-		fmt.Printf("warning: fov not specified, using default of 90 degrees\n")
+		log.Printf("WARN: fov not specified, using default of 90 degrees\n")
 		scene.Fov = 90.0
 	}
 	fovRadians := scene.Fov * math.Pi / 180.0
@@ -580,7 +581,7 @@ func convertGMLSceneObjects(sceneObjects []gml.SceneObject, evalState *gml.EvalS
 				// Material : nil
 			})
 		case *gml.Cube:
-			fmt.Println("WARN: cube skipped in rendering")
+			// log.Println("WARN: cube skipped in rendering")
 			// cube := &Cube{}
 			// TODO: We don't represent the GML cube as a slice of faces anymore.
 			// Instead we just have 2 opposite corners and an XForm struct (translation, rotation, scale).

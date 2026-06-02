@@ -228,11 +228,11 @@ func (e *EvalState) evalOneStep(token TokenGroup) error {
 	e.CurrToken = token
 	if e.Debug {
 		fmt.Printf("==============================\n")
-		fmt.Printf("step: %v\nstack:\n", TokenGroupDebugString(token))
+		fmt.Printf("next: %v\nstack:\n", TokenGroupDebugString(token))
 		for i, v := range e.Stack {
 			fmt.Printf("  %d: %v\n", i, v)
 		}
-		fmt.Printf("env: %v\n", e.Env)
+		fmt.Printf("env: %s\n", e.Env.DebugString(&e.IDMapping))
 	}
 	switch token := token.(type) {
 	case *IntLiteral:
@@ -294,16 +294,9 @@ func (e *EvalState) Pop() (Value, error) {
 
 // EvalClosure evaluates the code in the given closure, then restores the old environment.
 func (e *EvalState) EvalClosure(closure VClosure) error {
-	// BUG: Because we do not make a copy of Env here,
-	// restoring the old enviroment doesn't actually do
-	// anything (changes made to the environment while
-	// running the closure will still be present if
-	// we run it again). I don't think this observable
-	// with any of the current examples, but it is a
-	// bug nonetheless.
 	oldEnv := e.Env
 	defer func() { e.Env = oldEnv }()
-	e.Env = closure.Env
+	e.Env = closure.Env.Clone()
 	return e.Eval(closure.Code)
 }
 
