@@ -3,7 +3,6 @@ package gml
 import (
 	"errors"
 	"fmt"
-	"maps"
 	"math"
 	"strconv"
 	"strings"
@@ -25,7 +24,8 @@ type RenderArgs struct {
 type EvalState struct {
 	CurrToken TokenGroup // The token that is currently being evaluated
 	Stack     []Value
-	Env       map[string]Value
+	IDMapping IDMapping
+	Env       Environment
 	Render    func(*EvalState, *RenderArgs) error
 	Debug     bool
 }
@@ -60,11 +60,11 @@ func (v VString) String() string {
 
 type VClosure struct {
 	Code TokenList
-	Env  map[string]Value
+	Env  Environment
 }
 
 func (v VClosure) String() string {
-	return fmt.Sprintf("Closure(%v, env=%v)", v.Code, formatMap(v.Env))
+	return fmt.Sprintf("Closure(%v, env=%v)", v.Code, &v.Env)
 }
 
 type VArray struct {
@@ -195,8 +195,24 @@ var (
 
 func NewEvalState() *EvalState {
 	return &EvalState{
-		Env: make(map[string]Value),
+		IDMapping: *NewIDMapping(),
+		Env:       newEnv(),
 	}
+}
+
+func (e *EvalState) ParseAndEval(input string) error {
+	p := NewParserWithIDMapping(input, &e.IDMapping)
+	program, err := p.Parse()
+	if err != nil {
+		return err
+	}
+
+	for _, token := range program {
+		if err := e.evalOneStep(token); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (e *EvalState) Eval(program TokenList) error {
@@ -216,10 +232,7 @@ func (e *EvalState) evalOneStep(token TokenGroup) error {
 		for i, v := range e.Stack {
 			fmt.Printf("  %d: %v\n", i, v)
 		}
-		fmt.Printf("env:\n")
-		for k, v := range e.Env {
-			fmt.Printf("  %s: %v\n", k, v)
-		}
+		fmt.Printf("env: %v\n", e.Env)
 	}
 	switch token := token.(type) {
 	case *IntLiteral:
@@ -231,19 +244,19 @@ func (e *EvalState) evalOneStep(token TokenGroup) error {
 	case *StringLiteral:
 		e.Push(VString(token.Value))
 	case *Function:
-		e.Push(VClosure{Code: token.Body, Env: maps.Clone(e.Env)})
+		e.Push(VClosure{Code: token.Body, Env: e.Env.Clone()})
 	case *Binder:
 		v, err := e.Pop()
 		if err != nil {
 			return err
 		}
-		e.Env[token.Name] = v
+		e.Env.Store(token.ID, v)
 	case *Identifier:
 		if b := builtins[token.Name]; b != nil {
 			return b.Run(e)
 		}
 		// Else look up a variable in the environment.
-		if val, ok := e.Env[token.Name]; ok {
+		if val := e.Env.Lookup(token.ID); val != nil {
 			e.Push(val)
 		} else {
 			return fmt.Errorf("%s%w: %s", token.Pos.prefix(), ErrUnboundIdentifier, token.Name)
@@ -281,6 +294,13 @@ func (e *EvalState) Pop() (Value, error) {
 
 // EvalClosure evaluates the code in the given closure, then restores the old environment.
 func (e *EvalState) EvalClosure(closure VClosure) error {
+	// BUG: Because we do not make a copy of Env here,
+	// restoring the old enviroment doesn't actually do
+	// anything (changes made to the environment while
+	// running the closure will still be present if
+	// we run it again). I don't think this observable
+	// with any of the current examples, but it is a
+	// bug nonetheless.
 	oldEnv := e.Env
 	defer func() { e.Env = oldEnv }()
 	e.Env = closure.Env

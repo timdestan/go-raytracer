@@ -2,7 +2,6 @@ package gml
 
 import (
 	"fmt"
-	"slices"
 	"strconv"
 	"strings"
 
@@ -14,7 +13,7 @@ func SplitLines(line string) []string {
 	return strings.Split(strings.ReplaceAll(line, "\r\n", "\n"), "\n")
 }
 
-func RenderArgsToLines(args *RenderArgs) []string {
+func RenderArgsToLines(args *RenderArgs, idMapping *IDMapping) []string {
 	var lines []string
 	indent := 0
 	add := func(s string) {
@@ -45,18 +44,14 @@ func RenderArgsToLines(args *RenderArgs) []string {
 		indent++
 		defer func() { indent-- }()
 		add("code: " + fn.Code.String())
-		if len(fn.Env) == 0 {
+		bindings := fn.Env.Bindings()
+		if len(bindings) == 0 {
 			return
 		}
 		add("env:")
-		var keys []string
-		for k := range fn.Env {
-			keys = append(keys, k)
-		}
-		slices.Sort(keys)
 		indent++
-		for _, k := range keys {
-			add(k + ": " + fn.Env[k].String())
+		for _, b := range bindings {
+			add(b.DebugString(idMapping))
 		}
 		indent--
 	}

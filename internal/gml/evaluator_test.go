@@ -11,11 +11,7 @@ import (
 
 func evalError(t *testing.T, program string) error {
 	t.Helper()
-	tl, err := NewParser(program).Parse()
-	if err != nil {
-		t.Fatalf("parse error: %v", err)
-	}
-	err = NewEvalState().Eval(tl)
+	err := NewEvalState().ParseAndEval(program)
 	if err == nil {
 		t.Fatal("expected an eval error, got nil")
 	}
@@ -109,13 +105,8 @@ func TestSimpleEval(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			tokens, err := NewParser(tt.program).Parse()
-			if err != nil {
-				t.Errorf("parse error: %v", err)
-				return
-			}
 			st := NewEvalState()
-			err = st.Eval(tokens)
+			err := st.ParseAndEval(tt.program)
 			if err != nil {
 				t.Errorf("eval error: %v", err)
 				return
@@ -126,7 +117,7 @@ func TestSimpleEval(t *testing.T) {
 				got = st.Stack[len(st.Stack)-1]
 			}
 			if diff := cmp.Diff(got, tt.want); diff != "" {
-				t.Errorf("Eval() mismatch (-got +want):\n%s", diff)
+				t.Errorf("Eval(%s) mismatch (-got +want):\n%s", tt.name, diff)
 			}
 		})
 	}
@@ -144,11 +135,7 @@ func TestSingleRender(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			program := MustReadTestdataFile("testdata/" + tt.name + ".gml")
-			tokens, err := NewParser(program).Parse()
-			if err != nil {
-				t.Errorf("parse error: %v", err)
-				return
-			}
+
 			var got *RenderArgs
 			st := NewEvalState()
 			st.Render = func(e *EvalState, args *RenderArgs) error {
@@ -160,12 +147,12 @@ func TestSingleRender(t *testing.T) {
 				return nil
 			}
 			st.Debug = tt.debug
-			err = st.Eval(tokens)
+			err := st.ParseAndEval(program)
 			if err != nil {
 				t.Errorf("eval error: %v", err)
 				return
 			}
-			gotLines := RenderArgsToLines(got)
+			gotLines := RenderArgsToLines(got, &st.IDMapping)
 			wantFile := "testdata/" + tt.name + ".out"
 			wantLines := SplitLines(MustReadTestdataFile(wantFile))
 			if diff := cmp.Diff(wantLines, gotLines); diff != "" {
@@ -187,17 +174,13 @@ func TestSingleRender(t *testing.T) {
 // go tool pprof -http=:8080 /tmp/cpu.prof
 
 func BenchmarkParseAndEval(b *testing.B) {
+	program := MustReadTestdataFile("testdata/sphere.gml")
 	for b.Loop() {
-		tokens, err := NewParser(MustReadTestdataFile("testdata/sphere.gml")).Parse()
-		if err != nil {
-			b.Errorf("parse error: %v", err)
-			return
-		}
 		st := NewEvalState()
 		st.Render = func(e *EvalState, args *RenderArgs) error {
 			return nil
 		}
-		err = st.Eval(tokens)
+		err := st.ParseAndEval(program)
 		if err != nil {
 			b.Errorf("eval error: %v", err)
 			return
@@ -210,29 +193,11 @@ func BenchmarkParseAndEval(b *testing.B) {
 // go tool pprof -http=:8080 /tmp/cpu.prof
 
 func BenchmarkParse(b *testing.B) {
+	program := MustReadTestdataFile("testdata/sphere.gml")
 	for b.Loop() {
-		_, err := NewParser(MustReadTestdataFile("testdata/sphere.gml")).Parse()
+		_, err := NewParser(program).Parse()
 		if err != nil {
 			b.Errorf("parse error: %v", err)
-			return
-		}
-	}
-}
-
-func BenchmarkEval(b *testing.B) {
-	tokens, err := NewParser(MustReadTestdataFile("testdata/sphere.gml")).Parse()
-	if err != nil {
-		b.Errorf("parse error: %v", err)
-		return
-	}
-	for b.Loop() {
-		st := NewEvalState()
-		st.Render = func(e *EvalState, args *RenderArgs) error {
-			return nil
-		}
-		err = st.Eval(tokens)
-		if err != nil {
-			b.Errorf("eval error: %v", err)
 			return
 		}
 	}

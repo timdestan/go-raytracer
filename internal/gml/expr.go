@@ -51,6 +51,10 @@ type TokenGroup interface {
 
 type Identifier struct {
 	Name string
+	// Id is a unique id for the symbol. Symbols with
+	// the same names in different scopes will share
+	// the same id.
+	ID int
 	Pos
 }
 
@@ -99,6 +103,7 @@ func (s *StringLiteral) Position() Pos        { return s.Pos }
 
 type Binder struct {
 	Name string
+	ID   int
 	Pos
 }
 

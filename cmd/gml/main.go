@@ -91,17 +91,14 @@ func main() {
 			if err != nil {
 				return err
 			}
-			return evalGML(string(prog), st.evalState)
+			return st.evalState.ParseAndEval(string(prog))
 		},
 	})
 	registerCommand(&Command{
 		Symbol:   ":env",
 		HelpText: "Print the current environment",
 		Run: func(st *State) error {
-			fmt.Printf("env:\n")
-			for k, v := range st.evalState.Env {
-				fmt.Printf("  %v = %v\n", k, v)
-			}
+			fmt.Printf("env: %v\n", st.evalState.Env)
 			return nil
 		},
 	})
@@ -182,7 +179,7 @@ func main() {
 			}
 		} else {
 			// Otherwise treat the line as GML input.
-			err := evalGML(line, evalState)
+			err := evalState.ParseAndEval(line)
 			if err != nil {
 				fmt.Printf("GML error: %v\n", err)
 				continue
@@ -215,14 +212,6 @@ func readlineHistoryFilePath() string {
 		return ""
 	}
 	return filepath.Join(home, ".gml_history")
-}
-
-func evalGML(text string, state *gml.EvalState) error {
-	tokens, err := gml.NewParser(text).Parse()
-	if err != nil {
-		return err
-	}
-	return state.Eval(tokens)
 }
 
 func parseCommandArgs(line string) []string {

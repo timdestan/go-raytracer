@@ -510,10 +510,6 @@ func Render(scene *Scene) image.Image {
 }
 
 func ParseAndRenderGML(programText string) (image.Image, error) {
-	token, err := gml.Parse(programText)
-	if err != nil {
-		return nil, err
-	}
 	state := gml.NewEvalState()
 
 	images := make(map[string]image.Image)
@@ -526,7 +522,7 @@ func ParseAndRenderGML(programText string) (image.Image, error) {
 		return nil
 	}
 
-	err = state.Eval(token)
+	err := state.ParseAndEval(programText)
 	if err != nil {
 		return nil, err
 	}

@@ -7,11 +7,11 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 )
 
-// ignoreNodePos excludes the Pos field from all AST node comparisons so
+// ignoreNodePosAndID excludes the Pos field from all AST node comparisons so
 // existing tests don't need to enumerate expected source positions.
-var ignoreNodePos = cmp.FilterPath(func(p cmp.Path) bool {
+var ignoreNodePosAndID = cmp.FilterPath(func(p cmp.Path) bool {
 	if sf, ok := p.Last().(cmp.StructField); ok {
-		return sf.Name() == "Pos"
+		return sf.Name() == "Pos" || sf.Name() == "ID"
 	}
 	return false
 }, cmp.Ignore())
@@ -152,7 +152,7 @@ func TestParseExamples(t *testing.T) {
 			if err != nil {
 				t.Errorf("Parse() error = %v", err)
 			}
-			if diff := cmp.Diff(got, tt.want, cmpopts.EquateEmpty(), ignoreNodePos); diff != "" {
+			if diff := cmp.Diff(got, tt.want, cmpopts.EquateEmpty(), ignoreNodePosAndID); diff != "" {
 				t.Errorf("Parse() mismatch (-got +want):\n%s", diff)
 			}
 		})
@@ -164,7 +164,7 @@ func TestParseScientificNotation(t *testing.T) {
 	if err != nil {
 		t.Errorf("Parse() error = %v", err)
 	}
-	if diff := cmp.Diff(got, tokens(1.0e3), ignoreNodePos); diff != "" {
+	if diff := cmp.Diff(got, tokens(1.0e3), ignoreNodePosAndID); diff != "" {
 		t.Errorf("Parse() mismatch (-got +want):\n%s", diff)
 	}
 }

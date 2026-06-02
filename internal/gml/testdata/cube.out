@@ -12,12 +12,12 @@ render 480 320 cube.ppm
       surface:
         code: /v /u /face 0.5 0.5 0.5 point 0.3 0.85 1.0
         env:
-          blue: [0, 0, 1]
           c: Cube([0, 0, 0], [1, 1, 1])
-          fabs: Closure(/i i 0.0 lessf { i negf 0.5 addf } { i } if, env={blue: [0, 0, 1], c: Cube([0, 0, 0], [1, 1, 1]), texture: [[[0, 0, 1], [1, 1, 1]], [[1, 1, 1], [0, 0, 1]]], white: [1, 1, 1]})
-          p: Pt: [0, 0, 0], Normal: [0, -1, 0]
-          texture: [[[0, 0, 1], [1, 1, 1]], [[1, 1, 1], [0, 0, 1]]]
           white: [1, 1, 1]
+          blue: [0, 0, 1]
+          texture: [[[0, 0, 1], [1, 1, 1]], [[1, 1, 1], [0, 0, 1]]]
+          fabs: Closure(/i i 0.0 lessf { i negf 0.5 addf } { i } if, env={, 10: Cube([0, 0, 0], [1, 1, 1])11: [1, 1, 1]12: [0, 0, 1]13: [[[0, 0, 1], [1, 1, 1]], [[1, 1, 1], [0, 0, 1]]]})
+          p: Pt: [0, 0, 0], Normal: [0, -1, 0]
     union:
       plane:
         point: 0 0 0
@@ -25,11 +25,11 @@ render 480 320 cube.ppm
         surface:
           code: fabs apply /v fabs apply /u /face { frac 0.5 addf floor /i i } /toIntCoord texture u toIntCoord apply get v toIntCoord apply get 0.3 0.9 1.0
           env:
-            blue: [0, 0, 1]
             c: Cube([0, 0, 0], [1, 1, 1])
-            fabs: Closure(/i i 0.0 lessf { i negf 0.5 addf } { i } if, env={blue: [0, 0, 1], c: Cube([0, 0, 0], [1, 1, 1]), texture: [[[0, 0, 1], [1, 1, 1]], [[1, 1, 1], [0, 0, 1]]], white: [1, 1, 1]})
-            texture: [[[0, 0, 1], [1, 1, 1]], [[1, 1, 1], [0, 0, 1]]]
             white: [1, 1, 1]
+            blue: [0, 0, 1]
+            texture: [[[0, 0, 1], [1, 1, 1]], [[1, 1, 1], [0, 0, 1]]]
+            fabs: Closure(/i i 0.0 lessf { i negf 0.5 addf } { i } if, env={, 10: Cube([0, 0, 0], [1, 1, 1])11: [1, 1, 1]12: [0, 0, 1]13: [[[0, 0, 1], [1, 1, 1]], [[1, 1, 1], [0, 0, 1]]]})
       cube:
         minpoint: 0 0 0
         maxpoint: 1 1 1

@@ -7,16 +7,20 @@ import (
 )
 
 type Parser struct {
-	lexer *Lexer
-	curr  LexerToken
-}
-
-func Parse(input string) (TokenList, error) {
-	return NewParser(input).Parse()
+	lexer     *Lexer
+	curr      LexerToken
+	idMapping *IDMapping
 }
 
 func NewParser(input string) *Parser {
-	return &Parser{lexer: NewLexer(input)}
+	return NewParserWithIDMapping(input, NewIDMapping())
+}
+
+func NewParserWithIDMapping(input string, idMapping *IDMapping) *Parser {
+	return &Parser{
+		lexer:     NewLexer(input),
+		idMapping: idMapping,
+	}
 }
 
 func (p *Parser) Parse() (TokenList, error) {
@@ -106,7 +110,11 @@ func (p *Parser) parseSingleToken() (TokenGroup, error) {
 	switch p.currToken().Type {
 	case TokenIdent:
 		tok := p.readAndAdvanceToken()
-		return &Identifier{Name: tok.Literal, Pos: Pos{Line: tok.Line, Col: tok.Col}}, nil
+		return &Identifier{
+			Name: tok.Literal,
+			ID:   p.idMapping.GetOrCreateId(tok.Literal),
+			Pos:  Pos{Line: tok.Line, Col: tok.Col},
+		}, nil
 	case TokenInt:
 		return p.parseIntLiteral()
 	case TokenFloat:
@@ -129,7 +137,12 @@ func (p *Parser) parseBinder() (*Binder, error) {
 	if !strings.HasPrefix(name, "/") {
 		return nil, fmt.Errorf("%d:%d: binder must start with /, got %s", token.Line, token.Col, token.Type)
 	}
-	return &Binder{Name: name[1:], Pos: Pos{Line: token.Line, Col: token.Col}}, nil
+	name = name[1:]
+	return &Binder{
+		Name: name,
+		ID:   p.idMapping.GetOrCreateId(name),
+		Pos:  Pos{Line: token.Line, Col: token.Col},
+	}, nil
 }
 
 func (p *Parser) parseFloatLiteral() (TokenGroup, error) {
