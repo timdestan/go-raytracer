@@ -2,7 +2,6 @@ package gml
 
 import (
 	"fmt"
-	"slices"
 	"strconv"
 	"strings"
 )
@@ -158,24 +157,4 @@ func (l TokenList) String() string {
 		body[i] = TokenGroupDebugString(token)
 	}
 	return strings.Join(body, " ")
-}
-
-func formatMap[V fmt.Stringer](m map[string]V) string {
-	var sb strings.Builder
-	sb.WriteString("{")
-	var sortedKeys []string
-	for k := range m {
-		sortedKeys = append(sortedKeys, k)
-	}
-	slices.Sort(sortedKeys)
-	for _, k := range sortedKeys {
-		if sb.Len() > 1 {
-			sb.WriteString(", ")
-		}
-		sb.WriteString(k)
-		sb.WriteString(": ")
-		sb.WriteString(m[k].String())
-	}
-	sb.WriteString("}")
-	return sb.String()
 }

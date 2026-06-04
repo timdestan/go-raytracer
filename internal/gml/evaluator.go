@@ -67,6 +67,10 @@ func (v VClosure) String() string {
 	return fmt.Sprintf("Closure(%v, env=%v)", v.Code, &v.Env)
 }
 
+func (v VClosure) DebugStringCtx(ctx DebugStringContext) string {
+	return fmt.Sprintf("Closure(%v, env=%s)", v.Code, v.Env.DebugStringCtx(ctx))
+}
+
 type VArray struct {
 	Elements []Value
 }
@@ -232,7 +236,7 @@ func (e *EvalState) evalOneStep(token TokenGroup) error {
 		for i, v := range e.Stack {
 			fmt.Printf("  %d: %v\n", i, v)
 		}
-		fmt.Printf("env: %s\n", e.Env.DebugString(&e.IDMapping))
+		fmt.Printf("env: %s\n", e.Env.DebugStringCtx(DebugStringContext{&e.IDMapping}))
 	}
 	switch token := token.(type) {
 	case *IntLiteral:

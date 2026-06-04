@@ -14,6 +14,8 @@ func SplitLines(line string) []string {
 }
 
 func RenderArgsToLines(args *RenderArgs, idMapping *IDMapping) []string {
+	debugStringCtx := DebugStringContext{idMapping: idMapping}
+
 	var lines []string
 	indent := 0
 	add := func(s string) {
@@ -51,7 +53,7 @@ func RenderArgsToLines(args *RenderArgs, idMapping *IDMapping) []string {
 		add("env:")
 		indent++
 		for _, b := range bindings {
-			add(b.DebugString(idMapping))
+			add(b.DebugStringCtx(debugStringCtx))
 		}
 		indent--
 	}

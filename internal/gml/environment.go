@@ -16,12 +16,12 @@ func (b *Binding) String() string {
 	return fmt.Sprintf("%d: %v", b.ID, b.Value)
 }
 
-func (b *Binding) DebugString(idMapping *IDMapping) string {
-	symbol, ok := idMapping.IDNameMap[b.ID]
+func (b *Binding) DebugStringCtx(ctx DebugStringContext) string {
+	symbol, ok := ctx.idMapping.IDNameMap[b.ID]
 	if !ok {
 		symbol = fmt.Sprintf("%d (?)", b.ID)
 	}
-	return fmt.Sprintf("%s: %v", symbol, b.Value)
+	return fmt.Sprintf("%s: %s", symbol, DebugString(b.Value, ctx))
 }
 
 type Environment struct {
@@ -61,9 +61,9 @@ func (env *Environment) String() string {
 	})
 }
 
-func (env *Environment) DebugString(idMapping *IDMapping) string {
+func (env *Environment) DebugStringCtx(ctx DebugStringContext) string {
 	return env.mkString(func(b Binding) string {
-		return b.DebugString(idMapping)
+		return b.DebugStringCtx(ctx)
 	})
 }
 
@@ -110,4 +110,21 @@ func (f *IDMapping) GetOrCreateId(name string) int {
 	f.NameIDMap[name] = newId
 	f.IDNameMap[newId] = name
 	return newId
+}
+
+type DebugStringContext struct {
+	idMapping *IDMapping
+}
+
+type DebugStringer interface {
+	DebugStringCtx(ctx DebugStringContext) string
+}
+
+func DebugString(x any, ctx DebugStringContext) string {
+	switch v := x.(type) {
+	case DebugStringer:
+		return v.DebugStringCtx(ctx)
+	default:
+		return fmt.Sprintf("%v", x)
+	}
 }
