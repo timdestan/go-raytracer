@@ -1,37 +1,46 @@
 render 480 320 cube.ppm
-  fov: 90
+  fov: +90.00    
   depth: 7
-  ambient: 0.2 0.2 0.2
+  ambient: +0.20      +0.20      +0.20     
   light:
-    position: -10 10 0
-    color: 1 1 1
+    position: -10.00     +10.00     +0.00     
+    color: +1.00      +1.00      +1.00     
   union:
     plane:
-      point: 0 0 0
-      normal: 0 -1 0
+      xform:
+        +0.71     +0.00     -0.71     -5.66     
+        +0.71     -0.00     +0.71     +5.66     
+        +0.00     -1.00     -0.00     -0.00     
+        +0.00     +0.00     +0.00     +1.00     
       surface:
         code: /v /u /face 0.5 0.5 0.5 point 0.3 0.85 1.0
         env:
-          c: Cube([0, 0, 0], [1, 1, 1])
+          c: Cube(...)
           white: [1, 1, 1]
           blue: [0, 0, 1]
           texture: [[[0, 0, 1], [1, 1, 1]], [[1, 1, 1], [0, 0, 1]]]
-          fabs: Closure(/i i 0.0 lessf { i negf 0.5 addf } { i } if, env={c: Cube([0, 0, 0], [1, 1, 1]), white: [1, 1, 1], blue: [0, 0, 1], texture: [[[0, 0, 1], [1, 1, 1]], [[1, 1, 1], [0, 0, 1]]]})
+          fabs: Closure(/i i 0.0 lessf { i negf 0.5 addf } { i } if, env={c: Cube(...), white: [1, 1, 1], blue: [0, 0, 1], texture: [[[0, 0, 1], [1, 1, 1]], [[1, 1, 1], [0, 0, 1]]]})
           p: Pt: [0, 0, 0], Normal: [0, -1, 0]
     union:
       plane:
-        point: 0 0 0
-        normal: 0 -1 0
+        xform:
+          +1.00     +0.00     +0.00     +0.00     
+          +0.00     +1.00     +0.00     -3.00     
+          +0.00     +0.00     +1.00     +0.00     
+          +0.00     +0.00     +0.00     +1.00     
         surface:
           code: fabs apply /v fabs apply /u /face { frac 0.5 addf floor /i i } /toIntCoord texture u toIntCoord apply get v toIntCoord apply get 0.3 0.9 1.0
           env:
-            c: Cube([0, 0, 0], [1, 1, 1])
+            c: Cube(...)
             white: [1, 1, 1]
             blue: [0, 0, 1]
             texture: [[[0, 0, 1], [1, 1, 1]], [[1, 1, 1], [0, 0, 1]]]
-            fabs: Closure(/i i 0.0 lessf { i negf 0.5 addf } { i } if, env={c: Cube([0, 0, 0], [1, 1, 1]), white: [1, 1, 1], blue: [0, 0, 1], texture: [[[0, 0, 1], [1, 1, 1]], [[1, 1, 1], [0, 0, 1]]]})
+            fabs: Closure(/i i 0.0 lessf { i negf 0.5 addf } { i } if, env={c: Cube(...), white: [1, 1, 1], blue: [0, 0, 1], texture: [[[0, 0, 1], [1, 1, 1]], [[1, 1, 1], [0, 0, 1]]]})
       cube:
-        minpoint: 0 0 0
-        maxpoint: 1 1 1
+        xform:
+          -1.41     +1.00     +1.00     +3.50     
+          +0.00     +1.41     -1.41     -6.36     
+          -1.41     -1.00     -1.00     -3.50     
+          +0.00     +0.00     +0.00     +1.00     
         surface:
           code: /v /u /face 1.0 0.5 0.5 point 1.0 0.0 1.0

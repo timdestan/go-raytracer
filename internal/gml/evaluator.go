@@ -118,7 +118,8 @@ func (s *Sphere) Transform(mat *prim.Mat4) SceneObject {
 }
 
 type Cube struct {
-	Cube         prim.Cube
+	// We always assume the unit cube as a starting point.
+	// Transformations are handled by TransformMat
 	SurfaceFn    VClosure
 	TransformMat *prim.Mat4
 }
@@ -126,7 +127,9 @@ type Cube struct {
 var _ SceneObject = (*Cube)(nil)
 
 func (c *Cube) String() string {
-	return fmt.Sprintf("Cube(%v, %v)", c.Cube.MinPoint, c.Cube.MaxPoint)
+	// This is almost no information, but dumping the whole transform matrix
+	// is a bit much...
+	return "Cube(...)"
 }
 
 func (c *Cube) Transform(mat *prim.Mat4) SceneObject {
@@ -465,13 +468,7 @@ func cube(e *EvalState) error {
 	if err != nil {
 		return err
 	}
-	e.Push(&Cube{
-		Cube: *prim.CubeFromCorners(
-			&prim.Vec3{X: 0, Y: 0, Z: 0},
-			&prim.Vec3{X: 1, Y: 1, Z: 1},
-		),
-		SurfaceFn: surfaceFn,
-	})
+	e.Push(&Cube{SurfaceFn: surfaceFn})
 	return nil
 }
 

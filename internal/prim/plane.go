@@ -11,36 +11,28 @@ func (p *Plane) String() string {
 	return fmt.Sprintf("Pt: %v, Normal: %v", p.Point, p.Normal)
 }
 
-type Cube struct {
-	MinPoint, MaxPoint Vec3
-	Rotation           Vec4
-}
+type CubeSide int
 
-func (c *Cube) Rotate(axis *Vec3, angle float64) *Cube {
-	return &Cube{
-		MinPoint: c.MinPoint,
-		MaxPoint: c.MaxPoint,
-		Rotation: *c.Rotation.Rotate(axis, angle),
-	}
-}
+// These indexes are used directly in the surface function
+// calls for cubes.
+const (
+	CubeFront CubeSide = iota
+	CubeBack
+	CubeLeft
+	CubeRight
+	CubeTop
+	CubeBottom
+)
 
-func (c *Cube) String() string {
-	return fmt.Sprintf("Cube(%v, %v, Rotation: %v)", c.MinPoint, c.MaxPoint, c.Rotation)
-}
+const NUM_CUBE_SIDES CubeSide = 6
 
-// CubeFromCorners returns a cube defined by the given corners.
-// One corner *must* have coordinates strictly larger than the other in all
-// dimensions.
-func CubeFromCorners(corner1, corner2 *Vec3) *Cube {
-	if corner1.X > corner2.X {
-		corner1, corner2 = corner2, corner1
-	}
-	if corner1.X >= corner2.X || corner1.Y >= corner2.Y || corner1.Z >= corner2.Z {
-		panic("invalid corners: " + fmt.Sprintf("%v %v", corner1, corner2))
-	}
-	return &Cube{
-		MinPoint: *corner1,
-		MaxPoint: *corner2,
-		Rotation: *QIdentity(),
+func PlanesForUnitCube() [NUM_CUBE_SIDES]Plane {
+	return [NUM_CUBE_SIDES]Plane{
+		CubeFront:  {Point: Vec3{Z: 0}, Normal: Vec3{Z: -1}},
+		CubeBack:   {Point: Vec3{Z: 1}, Normal: Vec3{Z: +1}},
+		CubeLeft:   {Point: Vec3{X: 0}, Normal: Vec3{X: -1}},
+		CubeRight:  {Point: Vec3{X: 1}, Normal: Vec3{X: +1}},
+		CubeTop:    {Point: Vec3{Y: 1}, Normal: Vec3{Y: +1}},
+		CubeBottom: {Point: Vec3{Y: 0}, Normal: Vec3{Y: -1}},
 	}
 }

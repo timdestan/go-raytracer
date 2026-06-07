@@ -169,6 +169,7 @@ func (v *Sphere) String() string {
 }
 
 type Plane struct {
+	Side          prim.CubeSide // always 0 if not part of cube
 	Normal        prim.Vec3
 	D             float64
 	NormalWorld   prim.Vec3
@@ -219,7 +220,7 @@ func computePlaneSurfaceMaterial(plane *Plane, point prim.Vec3) (*Material, erro
 	u := point.X
 	v := point.Z
 
-	return evalSurfaceFn(0, u, v, plane.EvalState, *plane.SurfaceFn)
+	return evalSurfaceFn(int(plane.Side), u, v, plane.EvalState, *plane.SurfaceFn)
 }
 
 func (p *Plane) String() string {
@@ -227,39 +228,37 @@ func (p *Plane) String() string {
 }
 
 type Cube struct {
-	Faces [6]Plane
-	// SurfaceFn and EvalState are duplicated in each face.
-	// Material not supported
+	Faces         [prim.NUM_CUBE_SIDES]Plane
+	WorldToObject prim.Mat4
+	// A lot of data is duplicate in each Plane.
 }
 
 func (c *Cube) Intersect(ray Ray) *Hit {
-	// TODO:
-	// To handle cases where the cube is not axis aligned, we need
-	// to apply the inverse transform of the cube (inverse rotation + translation)
-	// to the ray origin and direction to project the ray in the cube's local space.
+	// ray = rayToObjectSpace(ray, &c.WorldToObject)
 
-	var hits [6]*Hit
+	var hits [prim.NUM_CUBE_SIDES]*Hit
 	for i := range c.Faces {
+		// This is wasteful for many reasons...
 		hits[i] = c.Faces[i].Intersect(ray)
 	}
-	// We need to find a hit that is within the bounds of the cube.
-	// A hit should point into the cube.
 	var minHit *Hit
-	// for i, hit := range hits {
-	// 	if hit == nil || hit.T < 0.0 {
-	// 		continue
-	// 	}
-	// 	for j, otherHit := range hits {
-	// 		if i == j {
-	// 			continue
-	// 		}
-	// 		if minHit == nil || hit.T < minHit.T {
-	// 			minHit = hit
-	// 		}
-	// 	}
-	// }
-	return minHit
+	for _, hit := range hits {
+		if hit == nil || hit.T < 0.0 {
+			continue
+		}
+		pt := hit.Point
+		// Is the hit within the bounds of the cube?
+		// We may want to not check the dimension of our side to avoid floating
+		// point precision issues.
+		if pt.X < 0 || pt.X > 1 || pt.Y < 0 || pt.Y > 1 || pt.Z < 0 || pt.Z > 1 {
+			continue
+		}
 
+		if minHit == nil || hit.T < minHit.T {
+			minHit = hit
+		}
+	}
+	return minHit
 }
 
 func computeLighting(hit *Hit, scene *Scene, ray Ray) prim.Vec3 {
@@ -294,10 +293,10 @@ func computeLighting(hit *Hit, scene *Scene, ray Ray) prim.Vec3 {
 
 // inShadow checks if the point hit by the ray is in the shadow of the light
 // source, by tracing a ray from the hit point to the light and checking if
-// there are any intersections with other spheres.
+// there are any intersections with other objects.
 //
 // The ray is offset by a small amount in the direction of the normal so that
-// the intersection with the current sphere is not counted.
+// the intersection with the current object is not counted.
 //
 // lightDir is assumed to be a normal vector.
 func inShadow(hit *Hit, scene *Scene, lightDir prim.Vec3, distToLight float64, ray Ray) bool {
@@ -360,6 +359,8 @@ func fresnel(normal, incident prim.Vec3, ior float64) float64 {
 
 func closestHit(scene *Scene, ray Ray) *Hit {
 	var minHit *Hit
+	// PERF: We currently compute the surface function as part of Intersect,
+	// but we really only need to do this for the closest hit.
 	for _, obj := range scene.Objects {
 		hit := obj.Intersect(ray)
 		if hit == nil {
@@ -372,8 +373,8 @@ func closestHit(scene *Scene, ray Ray) *Hit {
 	return minHit
 }
 
-// traceRay returns the color of the closest sphere hit by the ray, or nil
-// if no sphere is hit.
+// traceRay returns the color of the closest object hit by the ray, or nil
+// if no object is hit.
 func traceRay(scene *Scene, ray Ray, depth int) prim.Vec3 {
 	if depth <= 0 {
 		// Recursion limit
@@ -555,6 +556,24 @@ func ConvertRenderArgsToScene(args *gml.RenderArgs, state *gml.EvalState) (*Scen
 }
 
 func convertGMLSceneObjects(sceneObjects []gml.SceneObject, evalState *gml.EvalState) ([]SceneObject, error) {
+	createWorldToObjectMatrix := func(xform *prim.Mat4) prim.Mat4 {
+		if xform == nil {
+			return prim.IdentityMatrix()
+		}
+		return *xform.Inverse()
+	}
+
+	createPlane := func(point prim.Vec3, normal prim.Vec3, worldToObject prim.Mat4, surfaceFn *gml.VClosure) Plane {
+		return Plane{
+			Normal:        normal,
+			NormalWorld:   worldToObject.Transpose().MulDir(normal),
+			D:             -normal.Dot(point),
+			SurfaceFn:     surfaceFn,
+			EvalState:     evalState,
+			WorldToObject: worldToObject,
+		}
+	}
+
 	toVisit := sceneObjects
 	var results []SceneObject
 	for len(toVisit) > 0 {
@@ -562,13 +581,7 @@ func convertGMLSceneObjects(sceneObjects []gml.SceneObject, evalState *gml.EvalS
 		toVisit = toVisit[1:]
 		switch typedObject := sceneObject.(type) {
 		case *gml.Sphere:
-			var worldToObject prim.Mat4
-
-			if typedObject.TransformMat != nil {
-				worldToObject = *typedObject.TransformMat.Inverse()
-			} else {
-				worldToObject = prim.IdentityMatrix()
-			}
+			worldToObject := createWorldToObjectMatrix(typedObject.TransformMat)
 
 			results = append(results, &Sphere{
 				Center:        typedObject.Center,
@@ -577,40 +590,24 @@ func convertGMLSceneObjects(sceneObjects []gml.SceneObject, evalState *gml.EvalS
 				EvalState:     evalState,
 				WorldToObject: worldToObject,
 				NormalMat:     *worldToObject.Transpose(),
-
-				// Material : nil
 			})
 		case *gml.Cube:
-			// log.Println("WARN: cube skipped in rendering")
-			// cube := &Cube{}
-			// TODO: We don't represent the GML cube as a slice of faces anymore.
-			// Instead we just have 2 opposite corners and an XForm struct (translation, rotation, scale).
-			// for i, p := range typedObject.Faces {
-			// 	cube.Faces[i] = Plane{
-			// 		Normal:    p.Normal,
-			// 		D:         -p.Normal.Dot(&p.Point),
-			// 		SurfaceFn: &typedObject.SurfaceFn,
-			// 		EvalState: evalState,
-			// 	}
-			// }
-			// result = append(result, cube)
-		case *gml.Plane:
-			var worldToObject prim.Mat4
+			worldToObject := createWorldToObjectMatrix(typedObject.TransformMat)
 
-			if typedObject.TransformMat != nil {
-				worldToObject = *typedObject.TransformMat.Inverse()
-			} else {
-				worldToObject = prim.IdentityMatrix()
+			cube := &Cube{WorldToObject: worldToObject}
+			for i, side := range prim.PlanesForUnitCube() {
+				plane := createPlane(side.Point, side.Normal, worldToObject, &typedObject.SurfaceFn)
+				plane.Side = prim.CubeSide(i)
+				cube.Faces[i] = plane
 			}
 
-			results = append(results, &Plane{
-				Normal:        typedObject.Plane.Normal,
-				NormalWorld:   worldToObject.Transpose().MulDir(typedObject.Plane.Normal),
-				D:             -typedObject.Plane.Normal.Dot(typedObject.Plane.Point),
-				SurfaceFn:     &typedObject.SurfaceFn,
-				EvalState:     evalState,
-				WorldToObject: worldToObject,
-			})
+			results = append(results, cube)
+		case *gml.Plane:
+			worldToObject := createWorldToObjectMatrix(typedObject.TransformMat)
+
+			plane := createPlane(typedObject.Plane.Point, typedObject.Plane.Normal, worldToObject, &typedObject.SurfaceFn)
+
+			results = append(results, &plane)
 		case *gml.Union:
 			// Right now we just flatten everything...
 			toVisit = append(toVisit, typedObject.Objects...)

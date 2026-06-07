@@ -2,7 +2,6 @@ package gml
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/timdestan/go-raytracer/internal/prim"
@@ -22,11 +21,19 @@ func RenderArgsToLines(args *RenderArgs, idMapping *IDMapping) []string {
 		lines = append(lines, strings.Repeat("  ", indent)+s)
 	}
 
-	fmtFloat := func(f float64) string {
-		return strconv.FormatFloat(f, 'f', -1, 64)
+	fmtFloat := func(x float64) string {
+		// This leaves trailing whitespace on the last float in a line.
+		return fmt.Sprintf("%+-10.2f", x)
 	}
 	fmt3 := func(v *prim.Vec3) string {
 		return fmt.Sprintf("%s %s %s", fmtFloat(v.X), fmtFloat(v.Y), fmtFloat(v.Z))
+	}
+	fmtSlice := func(v []float64) string {
+		var sb strings.Builder
+		for _, x := range v {
+			sb.WriteString(fmtFloat(x))
+		}
+		return sb.String()
 	}
 
 	add(fmt.Sprintf("render %d %d %s", args.Width, args.Height, args.File))
@@ -41,6 +48,7 @@ func RenderArgsToLines(args *RenderArgs, idMapping *IDMapping) []string {
 		add("color: " + fmt3(&l.Color))
 		indent--
 	}
+
 	addSurfaceFn := func(fn VClosure) {
 		add("surface:")
 		indent++
@@ -50,6 +58,11 @@ func RenderArgsToLines(args *RenderArgs, idMapping *IDMapping) []string {
 		if len(bindings) == 0 {
 			return
 		}
+		// TODO: Complex variables from the environment
+		// (including bindings to other closures) are squashed
+		// into a single line here. We could do a lot better here
+		// although it might require passing the indentation
+		// level in the debug string context.
 		add("env:")
 		indent++
 		for _, b := range bindings {
@@ -58,29 +71,34 @@ func RenderArgsToLines(args *RenderArgs, idMapping *IDMapping) []string {
 		indent--
 	}
 
+	addXform := func(m4 prim.Mat4) {
+		add("xform:")
+		indent++
+		for _, row := range m4 {
+			add(fmtSlice(row[:]))
+		}
+		indent--
+	}
+
 	var addSceneObj func(obj SceneObject)
 	addSceneObj = func(obj SceneObject) {
-		// TODO: Render transformation matrix?
 		switch obj := obj.(type) {
 		case *Sphere:
 			add("sphere:")
 			indent++
-			add("center: " + fmt3(&obj.Center))
-			add("radius: " + fmtFloat(obj.Radius))
+			addXform(*obj.TransformMat)
 			addSurfaceFn(obj.SurfaceFn)
 			indent--
 		case *Cube:
 			add("cube:")
 			indent++
-			add("minpoint: " + fmt3(&obj.Cube.MinPoint))
-			add("maxpoint: " + fmt3(&obj.Cube.MaxPoint))
+			addXform(*obj.TransformMat)
 			addSurfaceFn(obj.SurfaceFn)
 			indent--
 		case *Plane:
 			add("plane:")
 			indent++
-			add("point: " + fmt3(&obj.Plane.Point))
-			add("normal: " + fmt3(&obj.Plane.Normal))
+			addXform(*obj.TransformMat)
 			addSurfaceFn(obj.SurfaceFn)
 			indent--
 		case *Union:
