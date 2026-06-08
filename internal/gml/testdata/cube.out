@@ -20,7 +20,7 @@ render 480 320 cube.ppm
           blue: [0, 0, 1]
           texture: [[[0, 0, 1], [1, 1, 1]], [[1, 1, 1], [0, 0, 1]]]
           fabs: Closure(/i i 0.0 lessf { i negf 0.5 addf } { i } if, env={c: Cube(...), white: [1, 1, 1], blue: [0, 0, 1], texture: [[[0, 0, 1], [1, 1, 1]], [[1, 1, 1], [0, 0, 1]]]})
-          p: Pt: [0, 0, 0], Normal: [0, -1, 0]
+          p: Pt: [0, 0, 0], Normal: [0, 1, 0]
     union:
       plane:
         xform:

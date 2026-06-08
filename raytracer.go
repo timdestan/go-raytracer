@@ -6,7 +6,7 @@ import (
 	"image"
 	"log"
 	"math"
-	"math/rand"
+	"math/rand/v2"
 
 	"github.com/timdestan/go-raytracer/internal/gml"
 	"github.com/timdestan/go-raytracer/internal/prim"
@@ -476,6 +476,7 @@ type Scene struct {
 
 func Render(scene *Scene) image.Image {
 	img := image.NewRGBA(image.Rect(0, 0, scene.WidthPx, scene.HeightPx))
+	rng := rand.New(rand.NewPCG(0xDEAD, 0xBEEF))
 
 	var recursionLimit = scene.RecursionDepth
 	if recursionLimit <= 0 {
@@ -503,8 +504,8 @@ func Render(scene *Scene) image.Image {
 			const numSamples = 4
 			for range numSamples {
 				// Map pixel coordinates to world coordinates.
-				du := rand.Float64() - 0.5
-				dv := rand.Float64() - 0.5
+				du := rng.Float64() - 0.5
+				dv := rng.Float64() - 0.5
 				u := (float64(x)+du)/float64(scene.WidthPx-1)*viewportWidth - viewportWidth/2.0
 				v := (float64(y)+dv)/float64(scene.HeightPx-1)*viewportHeight - viewportHeight/2.0
 

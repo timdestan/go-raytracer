@@ -482,7 +482,7 @@ func plane(e *EvalState) error {
 	e.Push(&Plane{
 		Plane: prim.Plane{
 			Point:  prim.Vec3{}, // (0, 0, 0)
-			Normal: prim.Vec3{X: 0, Y: -1, Z: 0},
+			Normal: prim.Vec3{X: 0, Y: 1, Z: 0},
 		},
 		SurfaceFn: surfaceFn,
 	})
