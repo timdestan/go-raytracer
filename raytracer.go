@@ -35,11 +35,12 @@ type Material struct {
 }
 
 type Hit struct {
-	Object   SceneObject
-	T        float64
-	Point    prim.Vec3
-	Normal   prim.Vec3
-	Material *Material
+	Object      SceneObject
+	T           float64
+	PointObj    prim.Vec3
+	PointWorld  prim.Vec3
+	NormalWorld prim.Vec3
+	Material    *Material
 }
 
 type SceneObject interface {
@@ -52,6 +53,7 @@ type Sphere struct {
 	Material      Material
 	SurfaceFn     *gml.VClosure
 	EvalState     *gml.EvalState
+	ObjectToWorld prim.Mat4
 	WorldToObject prim.Mat4
 	NormalMat     prim.Mat4
 }
@@ -118,17 +120,18 @@ func (sphere *Sphere) Intersect(ray Ray) *Hit {
 		normalDir := sphere.NormalMat.MulDir(hitPoint.Sub(sphere.Center))
 
 		return &Hit{
-			Object:   sphere,
-			T:        t0,
-			Point:    hitPoint,
-			Normal:   normalDir.Normalize(),
-			Material: material,
+			Object:      sphere,
+			T:           t0,
+			PointObj:    hitPoint,
+			PointWorld:  sphere.ObjectToWorld.MulPoint(hitPoint),
+			NormalWorld: normalDir.Normalize(),
+			Material:    material,
 		}
 	}
 	// TODO: Should we include these far hits?
 	// t1 := t_ca + t_hc
 	// if t1 > 0.0 {
-	// 	return t1, true
+	// 	 ...
 	// }
 	return nil
 }
@@ -175,6 +178,7 @@ type Plane struct {
 	NormalWorld   prim.Vec3
 	SurfaceFn     *gml.VClosure
 	EvalState     *gml.EvalState
+	ObjectToWorld prim.Mat4
 	WorldToObject prim.Mat4
 	// We don't need NormalMat since we precompute NormalWorld
 }
@@ -197,12 +201,14 @@ func (p *Plane) Intersect(ray Ray) *Hit {
 		fmt.Printf("Plane surfaceFn evaluation failed with error: %v\n", err)
 		return nil
 	}
+	pointObj := ray.Origin.Add(ray.Direction.Scale(t))
 	return &Hit{
-		Object:   p,
-		T:        t,
-		Point:    ray.Origin.Add(ray.Direction.Scale(t)),
-		Normal:   p.NormalWorld,
-		Material: material,
+		Object:      p,
+		T:           t,
+		PointObj:    pointObj,
+		PointWorld:  p.ObjectToWorld.MulPoint(pointObj),
+		NormalWorld: p.NormalWorld,
+		Material:    material,
 	}
 }
 
@@ -229,24 +235,24 @@ func (p *Plane) String() string {
 
 type Cube struct {
 	Faces         [prim.NUM_CUBE_SIDES]Plane
+	ObjectToWorld prim.Mat4
 	WorldToObject prim.Mat4
-	// A lot of data is duplicate in each Plane.
+	// A lot of data is duplicated in each Plane.
 }
 
 func (c *Cube) Intersect(ray Ray) *Hit {
 	// ray = rayToObjectSpace(ray, &c.WorldToObject)
 
-	var hits [prim.NUM_CUBE_SIDES]*Hit
-	for i := range c.Faces {
-		// This is wasteful for many reasons...
-		hits[i] = c.Faces[i].Intersect(ray)
-	}
 	var minHit *Hit
-	for _, hit := range hits {
+	for _, face := range c.Faces {
+		// This is wasteful for many reasons...
+		hit := face.Intersect(ray)
+
 		if hit == nil || hit.T < 0.0 {
 			continue
 		}
-		pt := hit.Point
+
+		pt := hit.PointObj
 		// Is the hit within the bounds of the cube?
 		// We may want to not check the dimension of our side to avoid floating
 		// point precision issues.
@@ -268,7 +274,7 @@ func computeLighting(hit *Hit, scene *Scene, ray Ray) prim.Vec3 {
 	result := mat.Color.Mul(&scene.AmbientLight).Scale(mat.Kd)
 
 	for _, light := range scene.Lights {
-		lightToHit := light.Position.Sub(hit.Point)
+		lightToHit := light.Position.Sub(hit.PointWorld)
 		distToLight := lightToHit.Length()
 		lightDir := lightToHit.Normalize()
 
@@ -277,12 +283,12 @@ func computeLighting(hit *Hit, scene *Scene, ray Ray) prim.Vec3 {
 		}
 
 		// Diffuse term
-		diff := math.Max(0, hit.Normal.Dot(lightDir)) * mat.Kd
+		diff := math.Max(0, hit.NormalWorld.Dot(lightDir)) * mat.Kd
 		diffuse := mat.Color.Mul(&light.Color).Scale(diff)
 
 		// Specular term (Blinn-Phong reflection)
 		H := V.Add(lightDir).Normalize()
-		spec := math.Max(0, hit.Normal.Dot(H))
+		spec := math.Max(0, hit.NormalWorld.Dot(H))
 		specular := light.Color.Scale(mat.Ks * math.Pow(spec, mat.SpecularExponent))
 
 		result = result.Add(diffuse).Add(specular)
@@ -301,7 +307,7 @@ func computeLighting(hit *Hit, scene *Scene, ray Ray) prim.Vec3 {
 // lightDir is assumed to be a normal vector.
 func inShadow(hit *Hit, scene *Scene, lightDir prim.Vec3, distToLight float64, ray Ray) bool {
 	const epsilon = 1e-4
-	shadowOrigin := hit.Point.Add(hit.Normal.Scale(epsilon))
+	shadowOrigin := hit.PointWorld.Add(hit.NormalWorld.Scale(epsilon))
 	shadowRay := Ray{Origin: shadowOrigin, Direction: lightDir}
 	for _, obj := range scene.Objects {
 		if obj == hit.Object {
@@ -399,7 +405,7 @@ func traceRay(scene *Scene, ray Ray, depth int) prim.Vec3 {
 	if mat.Reflectivity > 0 {
 		// For fuzzy reflections, add a random component to the reflection direction.
 		fuzz := mat.Fuzziness
-		reflectedDir := ray.Direction.Sub(hit.Normal.Scale(2.0 * ray.Direction.Dot(hit.Normal)))
+		reflectedDir := ray.Direction.Sub(hit.NormalWorld.Scale(2.0 * ray.Direction.Dot(hit.NormalWorld)))
 		// "random" vector
 		randomVector := prim.Vec3{
 			X: math.Cos(fuzz) * math.Cos(fuzz),
@@ -407,7 +413,7 @@ func traceRay(scene *Scene, ray Ray, depth int) prim.Vec3 {
 			Z: 0,
 		}
 		reflectionRay := Ray{
-			Origin:    hit.Point.Add(hit.Normal.Scale(1e-4)),
+			Origin:    hit.PointWorld.Add(hit.NormalWorld.Scale(1e-4)),
 			Direction: reflectedDir.Add(randomVector.Scale(fuzz)).Normalize(),
 		}
 		reflectedColor = traceRay(scene, reflectionRay, depth-1)
@@ -422,7 +428,7 @@ func traceRay(scene *Scene, ray Ray, depth int) prim.Vec3 {
 		// If the dot product of the ray direction and the normal is positive,
 		// then the ray is inside the object and trying to exit.
 		// In this case, must swap the refractive indices.
-		normal := hit.Normal
+		normal := hit.NormalWorld
 		if ray.Direction.Dot(normal) > 0.0 {
 			n1, n2 = n2, n1
 			// We also need to invert the normal
@@ -433,13 +439,13 @@ func traceRay(scene *Scene, ray Ray, depth int) prim.Vec3 {
 
 		if !refractedDir.IsZero() {
 			// Create the refracted ray. We offset the origin slightly to avoid self-intersection.
-			refractedRay := Ray{Origin: hit.Point.Sub(normal.Scale(1e-4)), Direction: refractedDir}
+			refractedRay := Ray{Origin: hit.PointWorld.Sub(normal.Scale(1e-4)), Direction: refractedDir}
 
 			// Recursively trace the refracted ray
 			refractedColor = traceRay(scene, refractedRay, depth-1)
 		}
 	}
-	kr := fresnel(hit.Normal, ray.Direction, mat.RefractiveIndex)
+	kr := fresnel(hit.NormalWorld, ray.Direction, mat.RefractiveIndex)
 	return surfaceColor.Scale(1.0 - mat.Transparency).Add(reflectedColor.Scale(kr).Add(refractedColor.Scale(1.0 - kr))).Clamp()
 }
 
@@ -556,20 +562,21 @@ func ConvertRenderArgsToScene(args *gml.RenderArgs, state *gml.EvalState) (*Scen
 }
 
 func convertGMLSceneObjects(sceneObjects []gml.SceneObject, evalState *gml.EvalState) ([]SceneObject, error) {
-	createWorldToObjectMatrix := func(xform *prim.Mat4) prim.Mat4 {
+	createMatrices := func(xform *prim.Mat4) (objectToWorld, worldToObject prim.Mat4) {
 		if xform == nil {
-			return prim.IdentityMatrix()
+			return prim.IdentityMatrix(), prim.IdentityMatrix()
 		}
-		return *xform.Inverse()
+		return *xform, *xform.Inverse()
 	}
 
-	createPlane := func(point prim.Vec3, normal prim.Vec3, worldToObject prim.Mat4, surfaceFn *gml.VClosure) Plane {
+	createPlane := func(point prim.Vec3, normal prim.Vec3, objectToWorld, worldToObject prim.Mat4, surfaceFn *gml.VClosure) Plane {
 		return Plane{
 			Normal:        normal,
 			NormalWorld:   worldToObject.Transpose().MulDir(normal),
 			D:             -normal.Dot(point),
 			SurfaceFn:     surfaceFn,
 			EvalState:     evalState,
+			ObjectToWorld: objectToWorld,
 			WorldToObject: worldToObject,
 		}
 	}
@@ -581,31 +588,35 @@ func convertGMLSceneObjects(sceneObjects []gml.SceneObject, evalState *gml.EvalS
 		toVisit = toVisit[1:]
 		switch typedObject := sceneObject.(type) {
 		case *gml.Sphere:
-			worldToObject := createWorldToObjectMatrix(typedObject.TransformMat)
+			objectToWorld, worldToObject := createMatrices(typedObject.TransformMat)
 
 			results = append(results, &Sphere{
 				Center:        typedObject.Center,
 				Radius:        float64(typedObject.Radius),
 				SurfaceFn:     &typedObject.SurfaceFn,
 				EvalState:     evalState,
+				ObjectToWorld: objectToWorld,
 				WorldToObject: worldToObject,
 				NormalMat:     *worldToObject.Transpose(),
 			})
 		case *gml.Cube:
-			worldToObject := createWorldToObjectMatrix(typedObject.TransformMat)
+			objectToWorld, worldToObject := createMatrices(typedObject.TransformMat)
 
-			cube := &Cube{WorldToObject: worldToObject}
+			cube := &Cube{
+				ObjectToWorld: objectToWorld,
+				WorldToObject: worldToObject,
+			}
 			for i, side := range prim.PlanesForUnitCube() {
-				plane := createPlane(side.Point, side.Normal, worldToObject, &typedObject.SurfaceFn)
+				plane := createPlane(side.Point, side.Normal, objectToWorld, worldToObject, &typedObject.SurfaceFn)
 				plane.Side = prim.CubeSide(i)
 				cube.Faces[i] = plane
 			}
 
 			results = append(results, cube)
 		case *gml.Plane:
-			worldToObject := createWorldToObjectMatrix(typedObject.TransformMat)
+			objectToWorld, worldToObject := createMatrices(typedObject.TransformMat)
 
-			plane := createPlane(typedObject.Plane.Point, typedObject.Plane.Normal, worldToObject, &typedObject.SurfaceFn)
+			plane := createPlane(typedObject.Plane.Point, typedObject.Plane.Normal, objectToWorld, worldToObject, &typedObject.SurfaceFn)
 
 			results = append(results, &plane)
 		case *gml.Union:

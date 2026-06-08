@@ -6,6 +6,8 @@ import (
 )
 
 func ExampleCannedScene(width, height int) *Scene {
+	// TODO: Extend the operations in GML so this scene
+	// can be represented with a GML program.
 	return &Scene{
 		WidthPx:  width,
 		HeightPx: height,
@@ -21,6 +23,7 @@ func ExampleCannedScene(width, height int) *Scene {
 					SpecularExponent: 50.0,
 					Transparency:     0.9,
 					RefractiveIndex:  1.5},
+				ObjectToWorld: prim.IdentityMatrix(),
 				WorldToObject: prim.IdentityMatrix(),
 				NormalMat:     prim.IdentityMatrix(),
 			},
@@ -32,6 +35,7 @@ func ExampleCannedScene(width, height int) *Scene {
 					Kd:           1.0,
 					Reflectivity: 0.2,
 					Fuzziness:    0.5},
+				ObjectToWorld: prim.IdentityMatrix(),
 				WorldToObject: prim.IdentityMatrix(),
 				NormalMat:     prim.IdentityMatrix()},
 			// Original reflective green sphere
@@ -42,6 +46,7 @@ func ExampleCannedScene(width, height int) *Scene {
 					Kd:           1.0,
 					Reflectivity: 0.8,
 				},
+				ObjectToWorld: prim.IdentityMatrix(),
 				WorldToObject: prim.IdentityMatrix(),
 				NormalMat:     prim.IdentityMatrix()},
 			// Ground plane
@@ -51,6 +56,7 @@ func ExampleCannedScene(width, height int) *Scene {
 					Color: prim.RGB(0.8, 0.8, 0.8),
 					Kd:    1.0,
 				},
+				ObjectToWorld: prim.IdentityMatrix(),
 				WorldToObject: prim.IdentityMatrix(),
 				NormalMat:     prim.IdentityMatrix()},
 		},
