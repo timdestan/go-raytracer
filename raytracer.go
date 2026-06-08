@@ -264,6 +264,9 @@ func (c *Cube) Intersect(ray Ray) *Hit {
 			minHit = hit
 		}
 	}
+	if minHit != nil {
+		minHit.Object = c
+	}
 	return minHit
 }
 
@@ -572,7 +575,7 @@ func convertGMLSceneObjects(sceneObjects []gml.SceneObject, evalState *gml.EvalS
 	createPlane := func(point prim.Vec3, normal prim.Vec3, objectToWorld, worldToObject prim.Mat4, surfaceFn *gml.VClosure) Plane {
 		return Plane{
 			Normal:        normal,
-			NormalWorld:   worldToObject.Transpose().MulDir(normal),
+			NormalWorld:   worldToObject.Transpose().MulDir(normal).Normalize(),
 			D:             -normal.Dot(point),
 			SurfaceFn:     surfaceFn,
 			EvalState:     evalState,

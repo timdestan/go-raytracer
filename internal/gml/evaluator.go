@@ -112,7 +112,7 @@ func (s *Sphere) Transform(mat *prim.Mat4) SceneObject {
 	if copy.TransformMat == nil {
 		copy.TransformMat = mat
 	} else {
-		copy.TransformMat = mat.MulMat(copy.TransformMat)
+		copy.TransformMat = copy.TransformMat.MulMat(mat)
 	}
 	return &copy
 }
@@ -137,7 +137,7 @@ func (c *Cube) Transform(mat *prim.Mat4) SceneObject {
 	if copy.TransformMat == nil {
 		copy.TransformMat = mat
 	} else {
-		copy.TransformMat = mat.MulMat(copy.TransformMat)
+		copy.TransformMat = copy.TransformMat.MulMat(mat)
 	}
 	return &copy
 }
@@ -159,7 +159,7 @@ func (p *Plane) Transform(mat *prim.Mat4) SceneObject {
 	if copy.TransformMat == nil {
 		copy.TransformMat = mat
 	} else {
-		copy.TransformMat = mat.MulMat(copy.TransformMat)
+		copy.TransformMat = copy.TransformMat.MulMat(mat)
 	}
 	return &copy
 }
