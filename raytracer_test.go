@@ -45,7 +45,7 @@ func checkImages(got image.Image, goldenFilePath string) error {
 		return fmt.Errorf("Error in SSIM computation: %v", err)
 	}
 	if ssim < minSSIM {
-		return fmt.Errorf("SSIM is %f, want >= %f", ssim, minSSIM)
+		return fmt.Errorf("SSIM is %f, want >= %f (`go test . --update` to update goldens)", ssim, minSSIM)
 	}
 	return nil
 }

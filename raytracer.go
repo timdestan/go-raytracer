@@ -22,13 +22,17 @@ func (r *Ray) String() string {
 }
 
 type Material struct {
-	Color           prim.Vec3
-	Reflectivity    float64 // 0 for diffuse, 1 for perfect mirror reflection
+	Color prim.Vec3
+
+	Reflectivity float64 // 0 for diffuse, 1 for perfect mirror reflection; GML surfaces use ks
+
+	// Not supported via GML (only used by the canned example scene).
 	Fuzziness       float64 // For fuzzy reflections (0 = no fuzz, 1 = max fuzz)
 	Transparency    float64 // 0.0 (opaque) to 1.0 (fully transparent)
 	RefractiveIndex float64 // For transparent materials (1.0 = air, 1.5 = glass)
 
 	// Phong parameters
+
 	Kd               float64 // diffuse reflection coefficient
 	Ks               float64 // specular reflection coefficient
 	SpecularExponent float64
@@ -92,8 +96,7 @@ func evalSurfaceFn(face int, u, v float64, state *gml.EvalState, closure gml.VCl
 		Kd:               float64(kd),
 		Ks:               float64(ks),
 		SpecularExponent: float64(n),
-		// Reflectivity:     0.0,
-		// Transparency:     0.0,
+		Reflectivity:     float64(ks),
 	}
 	return m, nil
 }
@@ -447,6 +450,9 @@ func traceRay(scene *Scene, ray Ray, depth int) prim.Vec3 {
 			// Recursively trace the refracted ray
 			refractedColor = traceRay(scene, refractedRay, depth-1)
 		}
+	}
+	if mat.Transparency == 0 {
+		return surfaceColor.Scale(1.0 - mat.Reflectivity).Add(reflectedColor.Scale(mat.Reflectivity)).Clamp()
 	}
 	kr := fresnel(hit.NormalWorld, ray.Direction, mat.RefractiveIndex)
 	return surfaceColor.Scale(1.0 - mat.Transparency).Add(reflectedColor.Scale(kr).Add(refractedColor.Scale(1.0 - kr))).Clamp()
