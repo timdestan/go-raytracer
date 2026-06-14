@@ -139,7 +139,7 @@ func TestParseExamples(t *testing.T) {
 				sym("scene"),
 				7,
 				90.0,
-				480, 320,
+				1024, 768,
 				"cube.ppm",
 				sym("render"),
 			),

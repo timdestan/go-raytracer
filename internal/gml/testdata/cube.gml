@@ -58,6 +58,6 @@ c p union p2 union /scene
 scene				          % scene to render
 7				              % tracing depth
 90.0				          % field of view
-480 320 		          % image width and height
+1024 768 		          % image width and height
 "cube.ppm"			      % output file
 render

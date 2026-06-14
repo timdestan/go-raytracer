@@ -1,4 +1,4 @@
-render 480 320 cube.ppm
+render 1024 768 cube.ppm
   fov: +90.00    
   depth: 7
   ambient: +0.20      +0.20      +0.20     
