@@ -21,23 +21,6 @@ func (r *Ray) String() string {
 	return fmt.Sprintf("Ray(Origin: %v, Direction: %v)", r.Origin, r.Direction)
 }
 
-type Material struct {
-	Color prim.Vec3
-
-	Reflectivity float64 // 0 for diffuse, 1 for perfect mirror reflection; GML surfaces use ks
-
-	// Not supported via GML (only used by the canned example scene).
-	Fuzziness       float64 // For fuzzy reflections (0 = no fuzz, 1 = max fuzz)
-	Transparency    float64 // 0.0 (opaque) to 1.0 (fully transparent)
-	RefractiveIndex float64 // For transparent materials (1.0 = air, 1.5 = glass)
-
-	// Phong parameters
-
-	Kd               float64 // diffuse reflection coefficient
-	Ks               float64 // specular reflection coefficient
-	SpecularExponent float64
-}
-
 type Hit struct {
 	Object   SceneObject
 	T        float64
@@ -52,7 +35,7 @@ type HitEx struct {
 	Hit
 	PointWorld  prim.Vec3
 	NormalWorld prim.Vec3
-	Material    *Material
+	Material    *gml.Material
 }
 
 type SceneObject interface {
@@ -63,8 +46,7 @@ type SceneObject interface {
 type Sphere struct {
 	Center        prim.Vec3
 	Radius        float64
-	Material      Material
-	SurfaceFn     *gml.VClosure
+	SurfaceFn     gml.VSurfaceFn
 	EvalState     *gml.EvalState
 	ObjectToWorld prim.Mat4
 	WorldToObject prim.Mat4
@@ -78,12 +60,24 @@ func rayToObjectSpace(ray Ray, worldToObject *prim.Mat4) Ray {
 	return localRay
 }
 
-func evalSurfaceFn(face int, u, v float64, state *gml.EvalState, closure gml.VClosure) (*Material, error) {
+var errNilEvalState = errors.New("nil GML eval state")
+
+func evalSurfaceFn(face int, u, v float64, state *gml.EvalState, surfaceFn *gml.VSurfaceFn) (*gml.Material, error) {
+	if surfaceFn.Material != nil {
+		return surfaceFn.Material, nil
+	}
+	if state == nil {
+		return nil, errNilEvalState
+	}
+	if surfaceFn.Closure == nil {
+		return nil, fmt.Errorf("surfaceFn in invalid state: %v", surfaceFn)
+	}
+
 	state.Push(gml.VInt(face))
 	state.Push(gml.VReal(u))
 	state.Push(gml.VReal(v))
 
-	err := state.EvalClosure(closure)
+	err := state.EvalClosure(*surfaceFn.Closure)
 
 	if err != nil {
 		return nil, err
@@ -100,7 +94,7 @@ func evalSurfaceFn(face int, u, v float64, state *gml.EvalState, closure gml.VCl
 	if err != nil {
 		return nil, err
 	}
-	m := &Material{
+	m := &gml.Material{
 		Color:            *surfaceColor,
 		Kd:               float64(kd),
 		Ks:               float64(ks),
@@ -150,13 +144,11 @@ func (sphere *Sphere) ComputeSurfaceProps(hit Hit) (HitEx, error) {
 	}, nil
 }
 
-func computeSphereSurfaceMaterial(sphere *Sphere, point prim.Vec3) (*Material, error) {
-	if sphere.SurfaceFn == nil {
-		return &sphere.Material, nil
+func computeSphereSurfaceMaterial(sphere *Sphere, point prim.Vec3) (*gml.Material, error) {
+	if sphere.SurfaceFn.Material != nil {
+		return sphere.SurfaceFn.Material, nil
 	}
-	if sphere.EvalState == nil {
-		return nil, fmt.Errorf("sphere has no eval state")
-	}
+
 	// Need to pass the face (always 0) and u and v coordinates on the stack.
 	//
 	// (0, u, v)
@@ -168,9 +160,9 @@ func computeSphereSurfaceMaterial(sphere *Sphere, point prim.Vec3) (*Material, e
 	// v = (y + 1.0) / 2.0
 	// u = acos (z / sqrt (1.0 - y * y)) / (2.0 * pi)
 
-	// TODO: How do we know the sqrt will not go negative?
-	// This implies point.Y <= 1, but it's not totally clear if this
-	// is guaranteed (point is computed from a hit on the sphere)
+	// GML spheres should always be unit spheres (the transformation matrix may
+	// scale and move them). The spheres from example scene break this rule,
+	// but these set Material directly so should not reach this point.
 	if math.Abs(point.Y) > 1 {
 		return nil, fmt.Errorf("expected |pt.Y| <= 1 in sphere surface, got %v", point)
 	}
@@ -178,7 +170,7 @@ func computeSphereSurfaceMaterial(sphere *Sphere, point prim.Vec3) (*Material, e
 	v := (point.Y + 1.0) / 2.0
 	u := math.Acos(point.Z/math.Sqrt(1.0-point.Y*point.Y)) / (2.0 * math.Pi)
 
-	return evalSurfaceFn(0, u, v, sphere.EvalState, *sphere.SurfaceFn)
+	return evalSurfaceFn(0, u, v, sphere.EvalState, &sphere.SurfaceFn)
 }
 
 func (v *Sphere) String() string {
@@ -190,7 +182,7 @@ type Plane struct {
 	Normal        prim.Vec3
 	D             float64
 	NormalWorld   prim.Vec3
-	SurfaceFn     *gml.VClosure
+	SurfaceFn     gml.VSurfaceFn
 	EvalState     *gml.EvalState
 	ObjectToWorld prim.Mat4
 	WorldToObject prim.Mat4
@@ -229,13 +221,7 @@ func (p *Plane) ComputeSurfaceProps(hit Hit) (HitEx, error) {
 	}, nil
 }
 
-func computePlaneSurfaceMaterial(plane *Plane, point prim.Vec3) (*Material, error) {
-	if plane.SurfaceFn == nil {
-		return nil, fmt.Errorf("plane has no SurfaceFn")
-	}
-	if plane.EvalState == nil {
-		return nil, fmt.Errorf("plane has no eval state")
-	}
+func computePlaneSurfaceMaterial(plane *Plane, point prim.Vec3) (*gml.Material, error) {
 	// Need to pass the face (always 0) and u and v coordinates on the stack.
 	//
 	// (0, u, v) <=> (u, 0, v)
@@ -243,7 +229,7 @@ func computePlaneSurfaceMaterial(plane *Plane, point prim.Vec3) (*Material, erro
 	u := point.X
 	v := point.Z
 
-	return evalSurfaceFn(int(plane.Side), u, v, plane.EvalState, *plane.SurfaceFn)
+	return evalSurfaceFn(int(plane.Side), u, v, plane.EvalState, &plane.SurfaceFn)
 }
 
 func (p *Plane) String() string {
@@ -434,7 +420,7 @@ func traceRay(scene *Scene, ray Ray, depth int) prim.Vec3 {
 	}
 	hitEx, err := hit.Object.ComputeSurfaceProps(*hit)
 	if err != nil {
-		panic(fmt.Errorf("error computing hit properties of %v: %w", hit, err))
+		panic(fmt.Errorf("error computing hit properties of %+v: %w", hit, err))
 	}
 
 	lighting := computeLighting(&hitEx, scene, ray)
@@ -619,7 +605,7 @@ func convertGMLSceneObjects(sceneObjects []gml.SceneObject, evalState *gml.EvalS
 		return *xform, *xform.Inverse()
 	}
 
-	createPlane := func(point prim.Vec3, normal prim.Vec3, objectToWorld, worldToObject prim.Mat4, surfaceFn *gml.VClosure) Plane {
+	createPlane := func(point prim.Vec3, normal prim.Vec3, objectToWorld, worldToObject prim.Mat4, surfaceFn gml.VSurfaceFn) Plane {
 		return Plane{
 			Normal:        normal,
 			NormalWorld:   worldToObject.Transpose().MulDir(normal).Normalize(),
@@ -643,7 +629,7 @@ func convertGMLSceneObjects(sceneObjects []gml.SceneObject, evalState *gml.EvalS
 			results = append(results, &Sphere{
 				Center:        typedObject.Center,
 				Radius:        float64(typedObject.Radius),
-				SurfaceFn:     &typedObject.SurfaceFn,
+				SurfaceFn:     typedObject.SurfaceFn,
 				EvalState:     evalState,
 				ObjectToWorld: objectToWorld,
 				WorldToObject: worldToObject,
@@ -657,7 +643,7 @@ func convertGMLSceneObjects(sceneObjects []gml.SceneObject, evalState *gml.EvalS
 				WorldToObject: worldToObject,
 			}
 			for i, side := range prim.PlanesForUnitCube() {
-				plane := createPlane(side.Point, side.Normal, objectToWorld, worldToObject, &typedObject.SurfaceFn)
+				plane := createPlane(side.Point, side.Normal, objectToWorld, worldToObject, typedObject.SurfaceFn)
 				plane.Side = prim.CubeSide(i)
 				cube.Faces[i] = plane
 			}
@@ -666,7 +652,7 @@ func convertGMLSceneObjects(sceneObjects []gml.SceneObject, evalState *gml.EvalS
 		case *gml.Plane:
 			objectToWorld, worldToObject := createMatrices(typedObject.TransformMat)
 
-			plane := createPlane(typedObject.Plane.Point, typedObject.Plane.Normal, objectToWorld, worldToObject, &typedObject.SurfaceFn)
+			plane := createPlane(typedObject.Plane.Point, typedObject.Plane.Normal, objectToWorld, worldToObject, typedObject.SurfaceFn)
 
 			results = append(results, &plane)
 		case *gml.Union:

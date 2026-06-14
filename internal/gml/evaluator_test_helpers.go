@@ -13,6 +13,12 @@ func SplitLines(line string) []string {
 }
 
 func RenderArgsToLines(args *RenderArgs, idMapping *IDMapping) []string {
+	assert := func(cond bool, msg string) {
+		if !cond {
+			panic(msg)
+		}
+	}
+
 	debugStringCtx := DebugStringContext{idMapping: idMapping}
 
 	var lines []string
@@ -49,24 +55,34 @@ func RenderArgsToLines(args *RenderArgs, idMapping *IDMapping) []string {
 		indent--
 	}
 
-	addSurfaceFn := func(fn VClosure) {
+	addSurfaceFn := func(fn VSurfaceFn) {
 		add("surface:")
 		indent++
 		defer func() { indent-- }()
-		add("code: " + fn.Code.String())
-		bindings := fn.Env.Bindings()
-		if len(bindings) == 0 {
-			return
-		}
-		// TODO: Complex variables from the environment
-		// (including bindings to other closures) are squashed
-		// into a single line here. We could do a lot better here
-		// although it might require passing the indentation
-		// level in the debug string context.
-		add("env:")
-		indent++
-		for _, b := range bindings {
-			add(b.DebugStringCtx(debugStringCtx))
+
+		if fn.Closure != nil {
+			add("code: " + fn.Closure.Code.String())
+			bindings := fn.Closure.Env.Bindings()
+			if len(bindings) == 0 {
+				return
+			}
+			// TODO: Complex variables from the environment
+			// (including bindings to other closures) are squashed
+			// into a single line here. We could do a lot better here
+			// although it might require passing the indentation
+			// level in the debug string context.
+			add("env:")
+			indent++
+			for _, b := range bindings {
+				add(b.DebugStringCtx(debugStringCtx))
+			}
+		} else {
+			assert(fn.Material != nil, "invalid state for VSurfaceFn")
+			add("color: " + fmt3(&fn.Material.Color))
+			add("refl: " + fmtFloat(fn.Material.Reflectivity))
+			add("kd: " + fmtFloat(fn.Material.Kd))
+			add("ks: " + fmtFloat(fn.Material.Ks))
+			add("n: " + fmtFloat(fn.Material.SpecularExponent))
 		}
 		indent--
 	}

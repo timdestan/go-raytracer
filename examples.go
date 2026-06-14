@@ -16,13 +16,15 @@ func ExampleCannedScene(width, height int) *Scene {
 			// Glass sphere with metallic sheen
 			&Sphere{Center: prim.Vec3{X: 0, Y: 0, Z: 5},
 				Radius: 1.0,
-				Material: Material{
-					Color:            prim.RGB(0.8, 0.2, 0.2),
-					Ks:               0.8,
-					Kd:               1.0,
-					SpecularExponent: 50.0,
-					Transparency:     0.9,
-					RefractiveIndex:  1.5},
+				SurfaceFn: gml.VSurfaceFn{
+					Material: &gml.Material{
+						Color:            prim.RGB(0.8, 0.2, 0.2),
+						Ks:               0.8,
+						Kd:               1.0,
+						SpecularExponent: 50.0,
+						Transparency:     0.9,
+						RefractiveIndex:  1.5},
+				},
 				ObjectToWorld: prim.IdentityMatrix(),
 				WorldToObject: prim.IdentityMatrix(),
 				NormalMat:     prim.IdentityMatrix(),
@@ -30,35 +32,44 @@ func ExampleCannedScene(width, height int) *Scene {
 			// Dull, fuzzy surface with some reflection
 			&Sphere{Center: prim.Vec3{X: 2, Y: 0, Z: 8},
 				Radius: 1.0,
-				Material: Material{
-					Color:        prim.RGB(0.2, 0.2, 0.8),
-					Kd:           1.0,
-					Reflectivity: 0.2,
-					Fuzziness:    0.5},
+				SurfaceFn: gml.VSurfaceFn{
+					Material: &gml.Material{
+						Color:        prim.RGB(0.2, 0.2, 0.8),
+						Kd:           1.0,
+						Reflectivity: 0.2,
+						Fuzziness:    0.5},
+				},
 				ObjectToWorld: prim.IdentityMatrix(),
 				WorldToObject: prim.IdentityMatrix(),
-				NormalMat:     prim.IdentityMatrix()},
+				NormalMat:     prim.IdentityMatrix(),
+			},
 			// Reflective green sphere
 			&Sphere{Center: prim.Vec3{X: -2, Y: 0, Z: 6},
 				Radius: 1.0,
-				Material: Material{
-					Color:        prim.RGB(0.2, 0.8, 0.2),
-					Kd:           1.0,
-					Reflectivity: 0.8,
+				SurfaceFn: gml.VSurfaceFn{
+					Material: &gml.Material{
+						Color:        prim.RGB(0.2, 0.8, 0.2),
+						Kd:           1.0,
+						Reflectivity: 0.8,
+					},
 				},
 				ObjectToWorld: prim.IdentityMatrix(),
 				WorldToObject: prim.IdentityMatrix(),
-				NormalMat:     prim.IdentityMatrix()},
+				NormalMat:     prim.IdentityMatrix(),
+			},
 			// Ground plane
 			&Sphere{Center: prim.Vec3{X: 0, Y: -1001, Z: 5},
 				Radius: 1000.0,
-				Material: Material{
-					Color: prim.RGB(0.8, 0.8, 0.8),
-					Kd:    1.0,
+				SurfaceFn: gml.VSurfaceFn{
+					Material: &gml.Material{
+						Color: prim.RGB(0.8, 0.8, 0.8),
+						Kd:    1.0,
+					},
 				},
 				ObjectToWorld: prim.IdentityMatrix(),
 				WorldToObject: prim.IdentityMatrix(),
-				NormalMat:     prim.IdentityMatrix()},
+				NormalMat:     prim.IdentityMatrix(),
+			},
 		},
 		Lights: []*gml.PointLight{
 			{Position: prim.Vec3{X: 5, Y: 5, Z: 0}, Color: prim.RGB(1, 1, 1)},

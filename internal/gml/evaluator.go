@@ -71,6 +71,32 @@ func (v VClosure) DebugStringCtx(ctx DebugStringContext) string {
 	return fmt.Sprintf("Closure(%v, env=%s)", v.Code, v.Env.DebugStringCtx(ctx))
 }
 
+// VSurfaceFn is effectively a union (exactly 1 of Closure and Material
+// should be non-nil)
+type VSurfaceFn struct {
+	// Closure is a callback that needs to be evaluated in the GML interpreter
+	// to compute a material.
+	Closure *VClosure
+	// Material is a constant precomputed material.
+	Material *Material
+}
+
+func (v VSurfaceFn) String() string {
+	if v.Closure != nil {
+		return fmt.Sprintf("%v", *v.Closure)
+	} else {
+		return fmt.Sprintf("%v", *v.Material)
+	}
+}
+
+func (v VSurfaceFn) DebugStringCtx(ctx DebugStringContext) string {
+	if v.Closure != nil {
+		return v.Closure.DebugStringCtx(ctx)
+	} else {
+		return v.Material.String()
+	}
+}
+
 type VArray struct {
 	Elements []Value
 }
@@ -88,6 +114,28 @@ func (a VArray) String() string {
 	return sb.String()
 }
 
+type Material struct {
+	Color prim.Vec3
+
+	Reflectivity float64 // 0 for diffuse, 1 for perfect mirror reflection; GML surfaces use ks
+
+	// Not supported via GML (only used by the canned example scene).
+	Fuzziness       float64 // For fuzzy reflections (0 = no fuzz, 1 = max fuzz)
+	Transparency    float64 // 0.0 (opaque) to 1.0 (fully transparent)
+	RefractiveIndex float64 // For transparent materials (1.0 = air, 1.5 = glass)
+
+	// Phong parameters
+
+	Kd               float64 // diffuse reflection coefficient
+	Ks               float64 // specular reflection coefficient
+	SpecularExponent float64
+}
+
+func (m Material) String() string {
+	// Does not include custom properties not currently supported in GML
+	return fmt.Sprintf("Material(Color: %v Refl: %v Kd: %v Ks: %v N: %v)", m.Color, m.Reflectivity, m.Kd, m.Ks, m.SpecularExponent)
+}
+
 type SceneObject interface {
 	Value
 
@@ -97,7 +145,7 @@ type SceneObject interface {
 type Sphere struct {
 	Center       prim.Vec3
 	Radius       float64
-	SurfaceFn    VClosure
+	SurfaceFn    VSurfaceFn
 	TransformMat *prim.Mat4
 }
 
@@ -120,7 +168,7 @@ func (s *Sphere) Transform(mat *prim.Mat4) SceneObject {
 type Cube struct {
 	// We always assume the unit cube as a starting point.
 	// Transformations are handled by TransformMat
-	SurfaceFn    VClosure
+	SurfaceFn    VSurfaceFn
 	TransformMat *prim.Mat4
 }
 
@@ -144,7 +192,7 @@ func (c *Cube) Transform(mat *prim.Mat4) SceneObject {
 
 type Plane struct {
 	Plane        prim.Plane
-	SurfaceFn    VClosure
+	SurfaceFn    VSurfaceFn
 	TransformMat *prim.Mat4
 }
 
@@ -445,6 +493,13 @@ func pointlight(e *EvalState) error {
 	return nil
 }
 
+func maybeSimplifySurfaceFn(closure *VClosure) VSurfaceFn {
+	// To be implemented... for now just return the closure.
+	return VSurfaceFn{
+		Closure: closure,
+	}
+}
+
 // sphere creates a unit sphere at the origin
 // with the surface function provided on the
 // top of the stack.
@@ -456,7 +511,7 @@ func sphere(e *EvalState) error {
 	e.Push(&Sphere{
 		Center:    prim.Vec3{X: 0, Y: 0, Z: 0},
 		Radius:    1.0,
-		SurfaceFn: surfaceFn,
+		SurfaceFn: maybeSimplifySurfaceFn(&surfaceFn),
 	})
 	return nil
 }
@@ -468,7 +523,7 @@ func cube(e *EvalState) error {
 	if err != nil {
 		return err
 	}
-	e.Push(&Cube{SurfaceFn: surfaceFn})
+	e.Push(&Cube{SurfaceFn: maybeSimplifySurfaceFn(&surfaceFn)})
 	return nil
 }
 
@@ -484,7 +539,7 @@ func plane(e *EvalState) error {
 			Point:  prim.Vec3{}, // (0, 0, 0)
 			Normal: prim.Vec3{X: 0, Y: 1, Z: 0},
 		},
-		SurfaceFn: surfaceFn,
+		SurfaceFn: maybeSimplifySurfaceFn(&surfaceFn),
 	})
 	return nil
 }
