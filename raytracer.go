@@ -493,7 +493,7 @@ func Render(scene *Scene) image.Image {
 	}
 
 	type workItem struct {
-		x, y int
+		x, ymin, ymax int // ymax is exclusive
 	}
 
 	workChan := make(chan workItem, 256)
@@ -505,8 +505,8 @@ func Render(scene *Scene) image.Image {
 		go func() {
 			defer wg.Done()
 
-			for workItem := range workChan {
-				x, y := workItem.x, workItem.y
+			for item := range workChan {
+				x, ymin, ymax := item.x, item.ymin, item.ymax
 
 				// For determinism, we create a new random generator state
 				// seeded deterministically from the x, y coordinates. PCG only
@@ -514,37 +514,47 @@ func Render(scene *Scene) image.Image {
 				// on construction so this should be fine for performance.
 
 				seed1 := 0xDEAD ^ uint64(x)
-				seed2 := 0xBEEF ^ uint64(y)
+				seed2 := 0xBEEF ^ uint64(ymin)
 				rng := rand.New(rand.NewPCG(seed1, seed2))
 
-				// Subsample for antialiasing
-				totalColor := prim.Vec3{}
-				const numSamples = 4
-				for range numSamples {
-					// Map pixel coordinates to world coordinates.
-					dx := rng.Float64() - 0.5
-					dy := rng.Float64() - 0.5
-					u := (float64(x)+dx)/float64(scene.WidthPx-1)*viewportWidth - viewportWidth/2.0
-					v := (float64(y)+dy)/float64(scene.HeightPx-1)*viewportHeight - viewportHeight/2.0
+				for y := ymin; y < ymax; y++ {
+					// Subsample for antialiasing
+					totalColor := prim.Vec3{}
+					const numSamples = 4
+					for range numSamples {
+						// Map pixel coordinates to world coordinates.
+						dx := rng.Float64() - 0.5
+						dy := rng.Float64() - 0.5
+						u := (float64(x)+dx)/float64(scene.WidthPx-1)*viewportWidth - viewportWidth/2.0
+						v := (float64(y)+dy)/float64(scene.HeightPx-1)*viewportHeight - viewportHeight/2.0
 
-					var ray Ray
-					ray.Origin = prim.Vec3{X: u, Y: -v, Z: 0.0} // screen point
-					ray.Direction = ray.Origin.Sub(eyePosition).Normalize()
+						var ray Ray
+						ray.Origin = prim.Vec3{X: u, Y: -v, Z: 0.0} // screen point
+						ray.Direction = ray.Origin.Sub(eyePosition).Normalize()
 
-					totalColor = totalColor.Add(traceRay(scene, &st, ray, recursionLimit))
+						totalColor = totalColor.Add(traceRay(scene, &st, ray, recursionLimit))
+					}
+					// SAFETY: We should be able to set distinct pixel coordinates
+					// of the image without coordination (since we preallocate the
+					// entire raster buffer at the start).
+					img.Set(x, y, totalColor.Scale(1.0/float64(numSamples)))
 				}
-				// SAFETY: We should be able to set distinct pixel coordinates
-				// of the image without coordination (since we preallocate the
-				// entire raster buffer at the start).
-				img.Set(x, y, totalColor.Scale(1.0/float64(numSamples)))
 			}
 		}()
 	}
 
 	go func() {
+		const batchSize = 20
 		for x := range scene.WidthPx {
-			for y := range scene.HeightPx {
-				workChan <- workItem{x, y}
+			y := 0
+			for y < scene.HeightPx {
+				ymax := min(y+batchSize, scene.HeightPx)
+				workChan <- workItem{
+					x:    x,
+					ymin: y,
+					ymax: ymax,
+				}
+				y = ymax
 			}
 		}
 		close(workChan)
@@ -555,15 +565,13 @@ func Render(scene *Scene) image.Image {
 	return img
 }
 
-const NUM_RENDER_THREADS = 8
-
 func ParseAndRenderGML(programText string) (image.Image, error) {
 	state := gml.NewEvalState()
 
 	images := make(map[string]image.Image)
 
 	state.Render = func(state *gml.EvalState, args *gml.RenderArgs) error {
-		scene, err := ConvertRenderArgsToScene(args, state, NUM_RENDER_THREADS)
+		scene, err := ConvertRenderArgsToScene(args, state)
 		if err != nil {
 			return err
 		}
@@ -587,7 +595,9 @@ func ParseAndRenderGML(programText string) (image.Image, error) {
 	return nil, errors.New("no image was rendered by the GML program")
 }
 
-func ConvertRenderArgsToScene(args *gml.RenderArgs, state *gml.EvalState, numRenderThreads int) (*Scene, error) {
+func ConvertRenderArgsToScene(args *gml.RenderArgs, state *gml.EvalState) (*Scene, error) {
+	numRenderThreads := 8
+
 	scene := &Scene{
 		WidthPx:        args.Width,
 		HeightPx:       args.Height,

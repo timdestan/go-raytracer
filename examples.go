@@ -83,7 +83,7 @@ func ExampleCannedScene(width, height int) *Scene {
 
 	// Sharing copies should be fine since we're never calling back into the
 	// GML environment (in fact the EvalStates are all nil). Sigh...
-	scene.PerThreadStates = make([]SceneThreadState, NUM_RENDER_THREADS)
+	scene.PerThreadStates = make([]SceneThreadState, 8)
 	for i := range scene.PerThreadStates {
 		scene.PerThreadStates[i].Objects = objects
 	}

@@ -13,7 +13,7 @@ set -o nounset
 set -o pipefail
 
 
-NUM_TRIALS=25
+NUM_TRIALS=20
 BASE_FILE=output/bench_baseline.txt
 MODIFIED_FILE=output/bench_modified.txt
 BENCH_PATTERN=.
