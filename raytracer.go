@@ -496,7 +496,7 @@ func Render(scene *Scene) image.Image {
 		x, y int
 	}
 
-	workChan := make(chan workItem) // unbuffered
+	workChan := make(chan workItem, 256)
 
 	var wg sync.WaitGroup
 	for _, st := range scene.PerThreadStates {
