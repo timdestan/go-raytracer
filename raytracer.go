@@ -277,7 +277,7 @@ func computeLighting(hit *Hit, scene *Scene, ray Ray) prim.Vec3 {
 	V := ray.Direction.Neg() // view vector = opposite of ray
 
 	mat := hit.Material
-	result := mat.Color.Mul(&scene.AmbientLight).Scale(mat.Kd)
+	result := scene.AmbientLight.Scale(mat.Kd)
 
 	for _, light := range scene.Lights {
 		lightToHit := light.Position.Sub(hit.PointWorld)
@@ -289,8 +289,10 @@ func computeLighting(hit *Hit, scene *Scene, ray Ray) prim.Vec3 {
 		}
 
 		// Diffuse term
-		diff := math.Max(0, hit.NormalWorld.Dot(lightDir)) * mat.Kd
-		diffuse := mat.Color.Mul(&light.Color).Scale(diff)
+		nDotL := hit.NormalWorld.Dot(lightDir)
+		// TODO: Should we be skipping the contribution of lights if this dot product
+		// is not positive?
+		diffuse := light.Color.Scale(nDotL * mat.Kd)
 
 		// Specular term (Blinn-Phong reflection)
 		H := V.Add(lightDir).Normalize()
@@ -399,28 +401,30 @@ func traceRay(scene *Scene, ray Ray, depth int) prim.Vec3 {
 		return scene.BgColorStart.Lerp(scene.BgColorEnd, t)
 	}
 
-	surfaceColor := computeLighting(hit, scene, ray)
+	lighting := computeLighting(hit, scene, ray)
 
 	mat := hit.Material
 	if mat.Reflectivity == 0 && mat.Transparency == 0 {
-		return surfaceColor.Clamp()
+		return lighting.Mul(&mat.Color).Clamp()
 	}
 
 	// Handle reflection and transparency based on material properties
 	reflectedColor := prim.Vec3{}
 	if mat.Reflectivity > 0 {
-		// For fuzzy reflections, add a random component to the reflection direction.
-		fuzz := mat.Fuzziness
 		reflectedDir := ray.Direction.Sub(hit.NormalWorld.Scale(2.0 * ray.Direction.Dot(hit.NormalWorld)))
-		// "random" vector
-		randomVector := prim.Vec3{
-			X: math.Cos(fuzz) * math.Cos(fuzz),
-			Y: math.Sin(fuzz) * math.Sin(fuzz),
-			Z: 0,
+
+		// For fuzzy reflections, add a random component to the reflection direction.
+		if fuzz := mat.Fuzziness; fuzz >= 0 {
+			reflectedDir = reflectedDir.Add(prim.Vec3{
+				X: fuzz * math.Cos(fuzz) * math.Cos(fuzz),
+				Y: fuzz * math.Sin(fuzz) * math.Sin(fuzz),
+				Z: 0,
+			})
 		}
+
 		reflectionRay := Ray{
 			Origin:    hit.PointWorld.Add(hit.NormalWorld.Scale(1e-4)),
-			Direction: reflectedDir.Add(randomVector.Scale(fuzz)).Normalize(),
+			Direction: reflectedDir.Normalize(),
 		}
 		reflectedColor = traceRay(scene, reflectionRay, depth-1)
 	}
@@ -452,10 +456,10 @@ func traceRay(scene *Scene, ray Ray, depth int) prim.Vec3 {
 		}
 	}
 	if mat.Transparency == 0 {
-		return surfaceColor.Scale(1.0 - mat.Reflectivity).Add(reflectedColor.Scale(mat.Reflectivity)).Clamp()
+		return lighting.Add(reflectedColor.Scale(mat.Reflectivity)).Mul(&mat.Color).Clamp()
 	}
 	kr := fresnel(hit.NormalWorld, ray.Direction, mat.RefractiveIndex)
-	return surfaceColor.Scale(1.0 - mat.Transparency).Add(reflectedColor.Scale(kr).Add(refractedColor.Scale(1.0 - kr))).Clamp()
+	return lighting.Scale(1.0 - mat.Transparency).Add(reflectedColor.Scale(kr).Add(refractedColor.Scale(1.0 - kr))).Mul(&mat.Color).Clamp()
 }
 
 func square(x float64) float64 {
@@ -510,10 +514,10 @@ func Render(scene *Scene) image.Image {
 			const numSamples = 4
 			for range numSamples {
 				// Map pixel coordinates to world coordinates.
-				du := rng.Float64() - 0.5
-				dv := rng.Float64() - 0.5
-				u := (float64(x)+du)/float64(scene.WidthPx-1)*viewportWidth - viewportWidth/2.0
-				v := (float64(y)+dv)/float64(scene.HeightPx-1)*viewportHeight - viewportHeight/2.0
+				dx := rng.Float64() - 0.5
+				dy := rng.Float64() - 0.5
+				u := (float64(x)+dx)/float64(scene.WidthPx-1)*viewportWidth - viewportWidth/2.0
+				v := (float64(y)+dy)/float64(scene.HeightPx-1)*viewportHeight - viewportHeight/2.0
 
 				var ray Ray
 				ray.Origin = prim.Vec3{X: u, Y: -v, Z: 0.0} // screen point

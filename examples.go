@@ -38,7 +38,7 @@ func ExampleCannedScene(width, height int) *Scene {
 				ObjectToWorld: prim.IdentityMatrix(),
 				WorldToObject: prim.IdentityMatrix(),
 				NormalMat:     prim.IdentityMatrix()},
-			// Original reflective green sphere
+			// Reflective green sphere
 			&Sphere{Center: prim.Vec3{X: -2, Y: 0, Z: 6},
 				Radius: 1.0,
 				Material: Material{
