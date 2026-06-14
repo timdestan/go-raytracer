@@ -493,11 +493,106 @@ func pointlight(e *EvalState) error {
 	return nil
 }
 
-func maybeSimplifySurfaceFn(closure *VClosure) VSurfaceFn {
-	// To be implemented... for now just return the closure.
-	return VSurfaceFn{
-		Closure: closure,
+func referencedVars(closure *VClosure) []string {
+	// We don't do any fancy dynamic analysis here, just walk the AST and
+	// find the referenced variables.
+
+	var vars []string
+	toVisit := closure.Code
+
+	for len(toVisit) > 0 {
+		var next TokenList
+
+		for _, tgroup := range toVisit {
+			switch tgroup := tgroup.(type) {
+			case *Identifier:
+				if _, ok := builtins[tgroup.Name]; ok {
+					// Don't consider builtins as vars.
+					continue
+				}
+				vars = append(vars, tgroup.Name)
+			case *Array:
+				for _, elt := range tgroup.Elements {
+					next = append(next, elt)
+				}
+			case *Function:
+				for _, elt := range tgroup.Body {
+					next = append(next, elt)
+				}
+			}
+		}
+
+		toVisit = next
 	}
+
+	return vars
+}
+
+var ErrNilEvalState = errors.New("nil GML eval state")
+
+func EvalSurfaceFn(face int, u, v float64, state *EvalState, surfaceFn *VSurfaceFn) (*Material, error) {
+	if surfaceFn.Material != nil {
+		return surfaceFn.Material, nil
+	}
+	if state == nil {
+		return nil, ErrNilEvalState
+	}
+	if surfaceFn.Closure == nil {
+		return nil, fmt.Errorf("surfaceFn in invalid state: %v", surfaceFn)
+	}
+
+	state.Push(VInt(face))
+	state.Push(VReal(u))
+	state.Push(VReal(v))
+
+	err := state.EvalClosure(*surfaceFn.Closure)
+
+	if err != nil {
+		return nil, err
+	}
+
+	// x y z point        % surface color
+	// 1.0 0.2 1.0		  % kd ks n
+
+	kd, ks, n, err := Pop3[VReal](state)
+	if err != nil {
+		return nil, err
+	}
+	surfaceColor, err := PopValue[*prim.Vec3](state)
+	if err != nil {
+		return nil, err
+	}
+	m := &Material{
+		Color:            *surfaceColor,
+		Kd:               float64(kd),
+		Ks:               float64(ks),
+		SpecularExponent: float64(n),
+		Reflectivity:     float64(ks),
+	}
+	return m, nil
+}
+
+func maybeSimplifySurfaceFn(closure *VClosure, evalState *EvalState) (VSurfaceFn, error) {
+	vars := referencedVars(closure)
+
+	// fmt.Printf("Referenced vars for %+v\n\n%v\n", closure.Code, vars)
+
+	surfaceFn := VSurfaceFn{Closure: closure}
+
+	if len(vars) == 0 {
+		// If the closure does not reference any variables,
+		// we can precompute it now. Any error here would presumably be
+		// fatal if attempted at runtime as well.
+
+		mat, err := EvalSurfaceFn(0, 0, 0, evalState, &surfaceFn)
+		if err != nil {
+			return VSurfaceFn{}, fmt.Errorf("error while precomputing closure: %w", err)
+		}
+
+		return VSurfaceFn{Material: mat}, nil
+	}
+
+	return surfaceFn, nil
 }
 
 // sphere creates a unit sphere at the origin
@@ -508,10 +603,14 @@ func sphere(e *EvalState) error {
 	if err != nil {
 		return err
 	}
+	compiledSurfaceFn, err := maybeSimplifySurfaceFn(&surfaceFn, e)
+	if err != nil {
+		return err
+	}
 	e.Push(&Sphere{
 		Center:    prim.Vec3{X: 0, Y: 0, Z: 0},
 		Radius:    1.0,
-		SurfaceFn: maybeSimplifySurfaceFn(&surfaceFn),
+		SurfaceFn: compiledSurfaceFn,
 	})
 	return nil
 }
@@ -523,7 +622,11 @@ func cube(e *EvalState) error {
 	if err != nil {
 		return err
 	}
-	e.Push(&Cube{SurfaceFn: maybeSimplifySurfaceFn(&surfaceFn)})
+	compiledSurfaceFn, err := maybeSimplifySurfaceFn(&surfaceFn, e)
+	if err != nil {
+		return err
+	}
+	e.Push(&Cube{SurfaceFn: compiledSurfaceFn})
 	return nil
 }
 
@@ -534,12 +637,16 @@ func plane(e *EvalState) error {
 	if err != nil {
 		return err
 	}
+	compiledSurfaceFn, err := maybeSimplifySurfaceFn(&surfaceFn, e)
+	if err != nil {
+		return err
+	}
 	e.Push(&Plane{
 		Plane: prim.Plane{
 			Point:  prim.Vec3{}, // (0, 0, 0)
 			Normal: prim.Vec3{X: 0, Y: 1, Z: 0},
 		},
-		SurfaceFn: maybeSimplifySurfaceFn(&surfaceFn),
+		SurfaceFn: compiledSurfaceFn,
 	})
 	return nil
 }

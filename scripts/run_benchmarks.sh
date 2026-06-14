@@ -13,9 +13,10 @@ set -o nounset
 set -o pipefail
 
 
-NUM_TRIALS=10
+NUM_TRIALS=25
 BASE_FILE=output/bench_baseline.txt
 MODIFIED_FILE=output/bench_modified.txt
+BENCH_PATTERN=.
 
 # git stash returns a success code even if nothing was stashed.
 # So compare the stash before and after to see if a change was made.
@@ -34,13 +35,13 @@ trap 'git stash pop' EXIT
 
 echo "Running benchmarks on baseline" >&2
 
-go test -bench=. -run=^$ -count=$NUM_TRIALS > "$BASE_FILE"
+go test -bench="$BENCH_PATTERN" -run=^$ -count=$NUM_TRIALS > "$BASE_FILE"
 
 git stash pop
 trap - EXIT
 
 echo "Running benchmarks on change" >&2
 
-go test -bench=. -run=^$ -count=$NUM_TRIALS > "$MODIFIED_FILE"
+go test -bench="$BENCH_PATTERN" -run=^$ -count=$NUM_TRIALS > "$MODIFIED_FILE"
 
 benchstat "$BASE_FILE" "$MODIFIED_FILE"

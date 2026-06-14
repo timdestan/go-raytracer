@@ -175,6 +175,7 @@ func TestSingleRender(t *testing.T) {
 					}
 				} else {
 					t.Errorf("Eval() mismatch (-want +got):\n%s", diff)
+					t.Errorf("To update: go test ./internal/gml -update")
 				}
 			}
 		})

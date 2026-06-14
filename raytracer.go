@@ -60,50 +60,6 @@ func rayToObjectSpace(ray Ray, worldToObject *prim.Mat4) Ray {
 	return localRay
 }
 
-var errNilEvalState = errors.New("nil GML eval state")
-
-func evalSurfaceFn(face int, u, v float64, state *gml.EvalState, surfaceFn *gml.VSurfaceFn) (*gml.Material, error) {
-	if surfaceFn.Material != nil {
-		return surfaceFn.Material, nil
-	}
-	if state == nil {
-		return nil, errNilEvalState
-	}
-	if surfaceFn.Closure == nil {
-		return nil, fmt.Errorf("surfaceFn in invalid state: %v", surfaceFn)
-	}
-
-	state.Push(gml.VInt(face))
-	state.Push(gml.VReal(u))
-	state.Push(gml.VReal(v))
-
-	err := state.EvalClosure(*surfaceFn.Closure)
-
-	if err != nil {
-		return nil, err
-	}
-
-	// x y z point        % surface color
-	// 1.0 0.2 1.0		  % kd ks n
-
-	kd, ks, n, err := gml.Pop3[gml.VReal](state)
-	if err != nil {
-		return nil, err
-	}
-	surfaceColor, err := gml.PopValue[*prim.Vec3](state)
-	if err != nil {
-		return nil, err
-	}
-	m := &gml.Material{
-		Color:            *surfaceColor,
-		Kd:               float64(kd),
-		Ks:               float64(ks),
-		SpecularExponent: float64(n),
-		Reflectivity:     float64(ks),
-	}
-	return m, nil
-}
-
 func (sphere *Sphere) Intersect(ray Ray) *Hit {
 	ray = rayToObjectSpace(ray, &sphere.WorldToObject)
 
@@ -170,7 +126,7 @@ func computeSphereSurfaceMaterial(sphere *Sphere, point prim.Vec3) (*gml.Materia
 	v := (point.Y + 1.0) / 2.0
 	u := math.Acos(point.Z/math.Sqrt(1.0-point.Y*point.Y)) / (2.0 * math.Pi)
 
-	return evalSurfaceFn(0, u, v, sphere.EvalState, &sphere.SurfaceFn)
+	return gml.EvalSurfaceFn(0, u, v, sphere.EvalState, &sphere.SurfaceFn)
 }
 
 func (v *Sphere) String() string {
@@ -229,7 +185,7 @@ func computePlaneSurfaceMaterial(plane *Plane, point prim.Vec3) (*gml.Material, 
 	u := point.X
 	v := point.Z
 
-	return evalSurfaceFn(int(plane.Side), u, v, plane.EvalState, &plane.SurfaceFn)
+	return gml.EvalSurfaceFn(int(plane.Side), u, v, plane.EvalState, &plane.SurfaceFn)
 }
 
 func (p *Plane) String() string {
