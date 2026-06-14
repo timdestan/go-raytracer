@@ -39,9 +39,17 @@ type Material struct {
 }
 
 type Hit struct {
-	Object      SceneObject
-	T           float64
-	PointObj    prim.Vec3
+	Object   SceneObject
+	T        float64
+	PointObj prim.Vec3
+	// Face indicates which face was hit, only relevant for objects
+	// with multiple faces.
+	Face int
+}
+
+// HitEx extends hit with additional computed surface properties.
+type HitEx struct {
+	Hit
 	PointWorld  prim.Vec3
 	NormalWorld prim.Vec3
 	Material    *Material
@@ -49,6 +57,7 @@ type Hit struct {
 
 type SceneObject interface {
 	Intersect(ray Ray) *Hit
+	ComputeSurfaceProps(hit Hit) (HitEx, error)
 }
 
 type Sphere struct {
@@ -113,22 +122,10 @@ func (sphere *Sphere) Intersect(ray Ray) *Hit {
 	t_hc := math.Sqrt(square(sphere.Radius) - (L.Dot(L) - square(t_ca)))
 	t0 := t_ca - t_hc
 	if t0 > 0.0 {
-		hitPoint := ray.Origin.Add(ray.Direction.Scale(t0))
-		material, err := computeSphereSurfaceMaterial(sphere, hitPoint)
-		if err != nil {
-			// TODO: Render operation should be able to propagate an error.
-			fmt.Printf("Sphere surfaceFn evaluation failed with error: %v\n", err)
-			return nil
-		}
-		normalDir := sphere.NormalMat.MulDir(hitPoint.Sub(sphere.Center))
-
 		return &Hit{
-			Object:      sphere,
-			T:           t0,
-			PointObj:    hitPoint,
-			PointWorld:  sphere.ObjectToWorld.MulPoint(hitPoint),
-			NormalWorld: normalDir.Normalize(),
-			Material:    material,
+			Object:   sphere,
+			T:        t0,
+			PointObj: ray.Origin.Add(ray.Direction.Scale(t0)),
 		}
 	}
 	// TODO: Should we include these far hits?
@@ -137,6 +134,20 @@ func (sphere *Sphere) Intersect(ray Ray) *Hit {
 	// 	 ...
 	// }
 	return nil
+}
+
+func (sphere *Sphere) ComputeSurfaceProps(hit Hit) (HitEx, error) {
+	material, err := computeSphereSurfaceMaterial(sphere, hit.PointObj)
+	if err != nil {
+		return HitEx{}, err
+	}
+	normalDir := sphere.NormalMat.MulDir(hit.PointObj.Sub(sphere.Center))
+	return HitEx{
+		Hit:         hit,
+		PointWorld:  sphere.ObjectToWorld.MulPoint(hit.PointObj),
+		NormalWorld: normalDir.Normalize(),
+		Material:    material,
+	}, nil
 }
 
 func computeSphereSurfaceMaterial(sphere *Sphere, point prim.Vec3) (*Material, error) {
@@ -197,22 +208,25 @@ func (p *Plane) Intersect(ray Ray) *Hit {
 	if t <= 0.0 {
 		return nil
 	}
-	hitPoint := ray.Origin.Add(ray.Direction.Scale(t))
-	material, err := computePlaneSurfaceMaterial(p, hitPoint)
-	if err != nil {
-		// TODO: Render operation should be able to propagate an error.
-		fmt.Printf("Plane surfaceFn evaluation failed with error: %v\n", err)
-		return nil
-	}
-	pointObj := ray.Origin.Add(ray.Direction.Scale(t))
 	return &Hit{
-		Object:      p,
-		T:           t,
-		PointObj:    pointObj,
-		PointWorld:  p.ObjectToWorld.MulPoint(pointObj),
+		Object:   p,
+		T:        t,
+		PointObj: ray.Origin.Add(ray.Direction.Scale(t)),
+	}
+}
+
+func (p *Plane) ComputeSurfaceProps(hit Hit) (HitEx, error) {
+	material, err := computePlaneSurfaceMaterial(p, hit.PointObj)
+	if err != nil {
+		return HitEx{}, err
+	}
+
+	return HitEx{
+		Hit:         hit,
+		PointWorld:  p.ObjectToWorld.MulPoint(hit.PointObj),
 		NormalWorld: p.NormalWorld,
 		Material:    material,
-	}
+	}, nil
 }
 
 func computePlaneSurfaceMaterial(plane *Plane, point prim.Vec3) (*Material, error) {
@@ -247,10 +261,8 @@ func (c *Cube) Intersect(ray Ray) *Hit {
 	// ray = rayToObjectSpace(ray, &c.WorldToObject)
 
 	var minHit *Hit
-	for _, face := range c.Faces {
-		// This is wasteful for many reasons...
+	for faceIndex, face := range c.Faces {
 		hit := face.Intersect(ray)
-
 		if hit == nil || hit.T < 0.0 {
 			continue
 		}
@@ -263,17 +275,37 @@ func (c *Cube) Intersect(ray Ray) *Hit {
 			continue
 		}
 
+		hit.Object = c
+		hit.Face = faceIndex
+
 		if minHit == nil || hit.T < minHit.T {
 			minHit = hit
 		}
 	}
-	if minHit != nil {
-		minHit.Object = c
-	}
 	return minHit
 }
 
-func computeLighting(hit *Hit, scene *Scene, ray Ray) prim.Vec3 {
+func (c *Cube) ComputeSurfaceProps(hit Hit) (HitEx, error) {
+	if hit.Face < 0 || hit.Face >= int(prim.NUM_CUBE_SIDES) {
+		return HitEx{}, fmt.Errorf("face index out of range: %d", hit.Face)
+	}
+
+	face := c.Faces[hit.Face]
+
+	material, err := computePlaneSurfaceMaterial(&face, hit.PointObj)
+	if err != nil {
+		return HitEx{}, err
+	}
+
+	return HitEx{
+		Hit:         hit,
+		PointWorld:  face.ObjectToWorld.MulPoint(hit.PointObj),
+		NormalWorld: face.NormalWorld,
+		Material:    material,
+	}, nil
+}
+
+func computeLighting(hit *HitEx, scene *Scene, ray Ray) prim.Vec3 {
 	V := ray.Direction.Neg() // view vector = opposite of ray
 
 	mat := hit.Material
@@ -313,7 +345,7 @@ func computeLighting(hit *Hit, scene *Scene, ray Ray) prim.Vec3 {
 // the intersection with the current object is not counted.
 //
 // lightDir is assumed to be a normal vector.
-func inShadow(hit *Hit, scene *Scene, lightDir prim.Vec3, distToLight float64, ray Ray) bool {
+func inShadow(hit *HitEx, scene *Scene, lightDir prim.Vec3, distToLight float64, ray Ray) bool {
 	const epsilon = 1e-4
 	shadowOrigin := hit.PointWorld.Add(hit.NormalWorld.Scale(epsilon))
 	shadowRay := Ray{Origin: shadowOrigin, Direction: lightDir}
@@ -400,10 +432,14 @@ func traceRay(scene *Scene, ray Ray, depth int) prim.Vec3 {
 		t := 0.5 * (ray.Direction.Y + 1.0)
 		return scene.BgColorStart.Lerp(scene.BgColorEnd, t)
 	}
+	hitEx, err := hit.Object.ComputeSurfaceProps(*hit)
+	if err != nil {
+		panic(fmt.Errorf("error computing hit properties of %v: %w", hit, err))
+	}
 
-	lighting := computeLighting(hit, scene, ray)
+	lighting := computeLighting(&hitEx, scene, ray)
 
-	mat := hit.Material
+	mat := hitEx.Material
 	if mat.Reflectivity == 0 && mat.Transparency == 0 {
 		return lighting.Mul(&mat.Color).Clamp()
 	}
@@ -411,7 +447,7 @@ func traceRay(scene *Scene, ray Ray, depth int) prim.Vec3 {
 	// Handle reflection and transparency based on material properties
 	reflectedColor := prim.Vec3{}
 	if mat.Reflectivity > 0 {
-		reflectedDir := ray.Direction.Sub(hit.NormalWorld.Scale(2.0 * ray.Direction.Dot(hit.NormalWorld)))
+		reflectedDir := ray.Direction.Sub(hitEx.NormalWorld.Scale(2.0 * ray.Direction.Dot(hitEx.NormalWorld)))
 
 		// For fuzzy reflections, add a random component to the reflection direction.
 		if fuzz := mat.Fuzziness; fuzz >= 0 {
@@ -423,7 +459,7 @@ func traceRay(scene *Scene, ray Ray, depth int) prim.Vec3 {
 		}
 
 		reflectionRay := Ray{
-			Origin:    hit.PointWorld.Add(hit.NormalWorld.Scale(1e-4)),
+			Origin:    hitEx.PointWorld.Add(hitEx.NormalWorld.Scale(1e-4)),
 			Direction: reflectedDir.Normalize(),
 		}
 		reflectedColor = traceRay(scene, reflectionRay, depth-1)
@@ -438,7 +474,7 @@ func traceRay(scene *Scene, ray Ray, depth int) prim.Vec3 {
 		// If the dot product of the ray direction and the normal is positive,
 		// then the ray is inside the object and trying to exit.
 		// In this case, must swap the refractive indices.
-		normal := hit.NormalWorld
+		normal := hitEx.NormalWorld
 		if ray.Direction.Dot(normal) > 0.0 {
 			n1, n2 = n2, n1
 			// We also need to invert the normal
@@ -449,7 +485,7 @@ func traceRay(scene *Scene, ray Ray, depth int) prim.Vec3 {
 
 		if !refractedDir.IsZero() {
 			// Create the refracted ray. We offset the origin slightly to avoid self-intersection.
-			refractedRay := Ray{Origin: hit.PointWorld.Sub(normal.Scale(1e-4)), Direction: refractedDir}
+			refractedRay := Ray{Origin: hitEx.PointWorld.Sub(normal.Scale(1e-4)), Direction: refractedDir}
 
 			// Recursively trace the refracted ray
 			refractedColor = traceRay(scene, refractedRay, depth-1)
@@ -458,7 +494,7 @@ func traceRay(scene *Scene, ray Ray, depth int) prim.Vec3 {
 	if mat.Transparency == 0 {
 		return lighting.Add(reflectedColor.Scale(mat.Reflectivity)).Mul(&mat.Color).Clamp()
 	}
-	kr := fresnel(hit.NormalWorld, ray.Direction, mat.RefractiveIndex)
+	kr := fresnel(hitEx.NormalWorld, ray.Direction, mat.RefractiveIndex)
 	return lighting.Scale(1.0 - mat.Transparency).Add(reflectedColor.Scale(kr).Add(refractedColor.Scale(1.0 - kr))).Mul(&mat.Color).Clamp()
 }
 
