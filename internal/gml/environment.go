@@ -112,6 +112,14 @@ func (f *IDMapping) GetOrCreateId(name string) int {
 	return newId
 }
 
+func (m *IDMapping) Clone() *IDMapping {
+	return &IDMapping{
+		NameIDMap: maps.Clone(m.NameIDMap),
+		IDNameMap: maps.Clone(m.IDNameMap),
+		MaxId:     m.MaxId,
+	}
+}
+
 type DebugStringContext struct {
 	idMapping *IDMapping
 }

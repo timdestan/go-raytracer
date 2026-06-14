@@ -7,6 +7,7 @@ import (
 	"log"
 	"math"
 	"math/rand/v2"
+	"sync"
 
 	"github.com/timdestan/go-raytracer/internal/gml"
 	"github.com/timdestan/go-raytracer/internal/prim"
@@ -247,7 +248,7 @@ func (c *Cube) ComputeSurfaceProps(hit Hit) (HitEx, error) {
 	}, nil
 }
 
-func computeLighting(hit *HitEx, scene *Scene, ray Ray) prim.Vec3 {
+func computeLighting(hit *HitEx, scene *Scene, objects []SceneObject, ray Ray) prim.Vec3 {
 	V := ray.Direction.Neg() // view vector = opposite of ray
 
 	mat := hit.Material
@@ -258,7 +259,7 @@ func computeLighting(hit *HitEx, scene *Scene, ray Ray) prim.Vec3 {
 		distToLight := lightToHit.Length()
 		lightDir := lightToHit.Normalize()
 
-		if inShadow(hit, scene, lightDir, distToLight, ray) {
+		if inShadow(hit, objects, lightDir, distToLight, ray) {
 			continue
 		}
 
@@ -287,11 +288,11 @@ func computeLighting(hit *HitEx, scene *Scene, ray Ray) prim.Vec3 {
 // the intersection with the current object is not counted.
 //
 // lightDir is assumed to be a normal vector.
-func inShadow(hit *HitEx, scene *Scene, lightDir prim.Vec3, distToLight float64, ray Ray) bool {
+func inShadow(hit *HitEx, objects []SceneObject, lightDir prim.Vec3, distToLight float64, ray Ray) bool {
 	const epsilon = 1e-4
 	shadowOrigin := hit.PointWorld.Add(hit.NormalWorld.Scale(epsilon))
 	shadowRay := Ray{Origin: shadowOrigin, Direction: lightDir}
-	for _, obj := range scene.Objects {
+	for _, obj := range objects {
 		if obj == hit.Object {
 			continue
 		}
@@ -345,11 +346,11 @@ func fresnel(normal, incident prim.Vec3, ior float64) float64 {
 	return r0 + (1-r0)*math.Pow(1-cost, 5) // Schlick's approximation
 }
 
-func closestHit(scene *Scene, ray Ray) *Hit {
+func closestHit(objects []SceneObject, ray Ray) *Hit {
 	var minHit *Hit
 	// PERF: We currently compute the surface function as part of Intersect,
 	// but we really only need to do this for the closest hit.
-	for _, obj := range scene.Objects {
+	for _, obj := range objects {
 		hit := obj.Intersect(ray)
 		if hit == nil {
 			continue
@@ -363,12 +364,12 @@ func closestHit(scene *Scene, ray Ray) *Hit {
 
 // traceRay returns the color of the closest object hit by the ray, or nil
 // if no object is hit.
-func traceRay(scene *Scene, ray Ray, depth int) prim.Vec3 {
+func traceRay(scene *Scene, threadState *SceneThreadState, ray Ray, depth int) prim.Vec3 {
 	if depth <= 0 {
 		// Recursion limit
 		return prim.Vec3{}
 	}
-	hit := closestHit(scene, ray)
+	hit := closestHit(threadState.Objects, ray)
 	if hit == nil {
 		// Calculate background color (linear gradient).
 		t := 0.5 * (ray.Direction.Y + 1.0)
@@ -379,7 +380,7 @@ func traceRay(scene *Scene, ray Ray, depth int) prim.Vec3 {
 		panic(fmt.Errorf("error computing hit properties of %+v: %w", hit, err))
 	}
 
-	lighting := computeLighting(&hitEx, scene, ray)
+	lighting := computeLighting(&hitEx, scene, threadState.Objects, ray)
 
 	mat := hitEx.Material
 	if mat.Reflectivity == 0 && mat.Transparency == 0 {
@@ -404,7 +405,7 @@ func traceRay(scene *Scene, ray Ray, depth int) prim.Vec3 {
 			Origin:    hitEx.PointWorld.Add(hitEx.NormalWorld.Scale(1e-4)),
 			Direction: reflectedDir.Normalize(),
 		}
-		reflectedColor = traceRay(scene, reflectionRay, depth-1)
+		reflectedColor = traceRay(scene, threadState, reflectionRay, depth-1)
 	}
 
 	refractedColor := prim.Vec3{}
@@ -430,7 +431,7 @@ func traceRay(scene *Scene, ray Ray, depth int) prim.Vec3 {
 			refractedRay := Ray{Origin: hitEx.PointWorld.Sub(normal.Scale(1e-4)), Direction: refractedDir}
 
 			// Recursively trace the refracted ray
-			refractedColor = traceRay(scene, refractedRay, depth-1)
+			refractedColor = traceRay(scene, threadState, refractedRay, depth-1)
 		}
 	}
 	if mat.Transparency == 0 {
@@ -444,27 +445,33 @@ func square(x float64) float64 {
 	return x * x
 }
 
+// SceneThreadState holds the per-thread evaluation state for a single thread.
+type SceneThreadState struct {
+	EvalState *gml.EvalState
+	Objects   []SceneObject
+}
+
 type Scene struct {
 	WidthPx, HeightPx int
-
 	// Fov is the camera field of view in degrees
-	Fov float64
-
+	Fov            float64
 	RecursionDepth int
 
-	Objects []SceneObject
-	Lights  []*gml.PointLight
+	// For now, lights do not reference the EvalState, so they can
+	// live outside of PerThreadStates.
 
+	Lights       []*gml.PointLight
 	AmbientLight prim.Vec3
 
 	// BgColorStart and BgColorEnd define the 2 ends of the gradient
 	// background color.
 	BgColorStart, BgColorEnd prim.Vec3
+
+	PerThreadStates []SceneThreadState
 }
 
 func Render(scene *Scene) image.Image {
 	img := image.NewRGBA(image.Rect(0, 0, scene.WidthPx, scene.HeightPx))
-	rng := rand.New(rand.NewPCG(0xDEAD, 0xBEEF))
 
 	var recursionLimit = scene.RecursionDepth
 	if recursionLimit <= 0 {
@@ -485,39 +492,82 @@ func Render(scene *Scene) image.Image {
 		Z: -1.0,
 	}
 
-	for x := range scene.WidthPx {
-		for y := range scene.HeightPx {
-			// Subsample for antialiasing
-			totalColor := prim.Vec3{}
-			const numSamples = 4
-			for range numSamples {
-				// Map pixel coordinates to world coordinates.
-				dx := rng.Float64() - 0.5
-				dy := rng.Float64() - 0.5
-				u := (float64(x)+dx)/float64(scene.WidthPx-1)*viewportWidth - viewportWidth/2.0
-				v := (float64(y)+dy)/float64(scene.HeightPx-1)*viewportHeight - viewportHeight/2.0
-
-				var ray Ray
-				ray.Origin = prim.Vec3{X: u, Y: -v, Z: 0.0} // screen point
-				ray.Direction = ray.Origin.Sub(eyePosition).Normalize()
-
-				totalColor = totalColor.Add(traceRay(scene, ray, recursionLimit))
-			}
-			img.Set(x, y, totalColor.Scale(1.0/float64(numSamples)))
-		}
+	type workItem struct {
+		x, y int
 	}
+
+	workChan := make(chan workItem) // unbuffered
+
+	var wg sync.WaitGroup
+	for _, st := range scene.PerThreadStates {
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+
+			for workItem := range workChan {
+				x, y := workItem.x, workItem.y
+
+				// For determinism, we create a new random generator state
+				// seeded deterministically from the x, y coordinates. PCG only
+				// has 128 bits of internal state and does no expensive work
+				// on construction so this should be fine for performance.
+
+				seed1 := 0xDEAD ^ uint64(x)
+				seed2 := 0xBEEF ^ uint64(y)
+				rng := rand.New(rand.NewPCG(seed1, seed2))
+
+				// Subsample for antialiasing
+				totalColor := prim.Vec3{}
+				const numSamples = 4
+				for range numSamples {
+					// Map pixel coordinates to world coordinates.
+					dx := rng.Float64() - 0.5
+					dy := rng.Float64() - 0.5
+					u := (float64(x)+dx)/float64(scene.WidthPx-1)*viewportWidth - viewportWidth/2.0
+					v := (float64(y)+dy)/float64(scene.HeightPx-1)*viewportHeight - viewportHeight/2.0
+
+					var ray Ray
+					ray.Origin = prim.Vec3{X: u, Y: -v, Z: 0.0} // screen point
+					ray.Direction = ray.Origin.Sub(eyePosition).Normalize()
+
+					totalColor = totalColor.Add(traceRay(scene, &st, ray, recursionLimit))
+				}
+				// SAFETY: We should be able to set distinct pixel coordinates
+				// of the image without coordination (since we preallocate the
+				// entire raster buffer at the start).
+				img.Set(x, y, totalColor.Scale(1.0/float64(numSamples)))
+			}
+		}()
+	}
+
+	go func() {
+		for x := range scene.WidthPx {
+			for y := range scene.HeightPx {
+				workChan <- workItem{x, y}
+			}
+		}
+		close(workChan)
+	}()
+
+	wg.Wait()
+
 	return img
 }
+
+const NUM_RENDER_THREADS = 8
 
 func ParseAndRenderGML(programText string) (image.Image, error) {
 	state := gml.NewEvalState()
 
 	images := make(map[string]image.Image)
+
 	state.Render = func(state *gml.EvalState, args *gml.RenderArgs) error {
-		scene, err := ConvertRenderArgsToScene(args, state)
+		scene, err := ConvertRenderArgsToScene(args, state, NUM_RENDER_THREADS)
 		if err != nil {
 			return err
 		}
+
 		images[args.File] = Render(scene)
 		return nil
 	}
@@ -537,20 +587,34 @@ func ParseAndRenderGML(programText string) (image.Image, error) {
 	return nil, errors.New("no image was rendered by the GML program")
 }
 
-func ConvertRenderArgsToScene(args *gml.RenderArgs, state *gml.EvalState) (*Scene, error) {
-	convertedObjects, err := convertGMLSceneObjects([]gml.SceneObject{args.Scene}, state)
-	if err != nil {
-		return nil, err
-	}
-	return &Scene{
+func ConvertRenderArgsToScene(args *gml.RenderArgs, state *gml.EvalState, numRenderThreads int) (*Scene, error) {
+	scene := &Scene{
 		WidthPx:        args.Width,
 		HeightPx:       args.Height,
 		Fov:            args.Fov,
 		RecursionDepth: args.Depth,
-		Objects:        convertedObjects,
 		Lights:         args.Lights,
 		AmbientLight:   *args.AmbientLight,
-	}, nil
+
+		// Note: BgColorStart, BgColorEnd are defaults (black background)
+	}
+
+	scene.PerThreadStates = make([]SceneThreadState, numRenderThreads)
+	for i := range scene.PerThreadStates {
+		state := state.Clone()
+
+		// PERF: We duplicate the conversion of GML objects for each thread
+		// (the only difference is the cloned EvalState)
+		convertedObjects, err := convertGMLSceneObjects([]gml.SceneObject{args.Scene}, state)
+		if err != nil {
+			return nil, err
+		}
+
+		scene.PerThreadStates[i].EvalState = state
+		scene.PerThreadStates[i].Objects = convertedObjects
+	}
+
+	return scene, nil
 }
 
 func convertGMLSceneObjects(sceneObjects []gml.SceneObject, evalState *gml.EvalState) ([]SceneObject, error) {

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -353,6 +354,27 @@ func (e *EvalState) EvalClosure(closure VClosure) error {
 	defer func() { e.Env = oldEnv }()
 	e.Env = closure.Env.Clone()
 	return e.Eval(closure.Code)
+}
+
+// Clone returns an independent copy of the argument EvalState.
+//
+// It should be possible to use the returned clone concurrently with the
+// original object, to render in parallel from multiple threads.
+func (e *EvalState) Clone() *EvalState {
+	// We hope to be able to get away with shallow clones here (and initial
+	// tests are promising). The reasons why:
+	//
+	// 1. Token groups should be immutable.
+	// 2. Values referenced in the stack and the environment *should* not be
+	//    modified by calls to the evaluator (since we create a copy of a
+	//    closure's environment whenever we run a closure).
+	return &EvalState{
+		CurrToken: e.CurrToken,
+		Stack:     slices.Clone(e.Stack),
+		Env:       e.Env.Clone(),
+		IDMapping: *e.IDMapping.Clone(),
+		Debug:     e.Debug,
+	}
 }
 
 func PopValue[T Value](e *EvalState) (T, error) {

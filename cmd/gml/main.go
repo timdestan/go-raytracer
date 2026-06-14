@@ -52,7 +52,7 @@ func main() {
 
 	evalState := gml.NewEvalState()
 	evalState.Render = func(e *gml.EvalState, args *gml.RenderArgs) error {
-		scene, err := raytracer.ConvertRenderArgsToScene(args, e)
+		scene, err := raytracer.ConvertRenderArgsToScene(args, e, raytracer.NUM_RENDER_THREADS)
 		if err != nil {
 			return err
 		}
