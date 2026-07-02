@@ -2,6 +2,7 @@ package gml
 
 import (
 	"flag"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -135,6 +136,23 @@ func TestSimpleEval(t *testing.T) {
 	}
 }
 
+func checkRenderArgsVsGolden(got *RenderArgs, st *EvalState, goldenFilePath string) (gotLines []string, err error) {
+	gotLines = RenderArgsToLines(got, &st.IDMapping)
+
+	goldenBytes, err := testdataFS.ReadFile(goldenFilePath)
+	if err != nil {
+		return
+	}
+
+	wantLines := SplitLines(string(goldenBytes))
+	if diff := cmp.Diff(wantLines, gotLines); diff != "" {
+		err = fmt.Errorf("Eval() mismatch (-want +got):\n%s", diff)
+		return
+	}
+
+	return
+}
+
 // TestSingleRender tests programs where we expect exactly one call to render.
 func TestSingleRender(t *testing.T) {
 	type testCase struct {
@@ -142,6 +160,7 @@ func TestSingleRender(t *testing.T) {
 		debug bool // set to enable debug tracing
 	}
 	for _, tt := range []testCase{
+		{name: "canned"},
 		{name: "sphere"},
 		{name: "cube"},
 	} {
@@ -164,19 +183,19 @@ func TestSingleRender(t *testing.T) {
 				t.Errorf("eval error: %v", err)
 				return
 			}
-			gotLines := RenderArgsToLines(got, &st.IDMapping)
-			wantFile := "testdata/" + tt.name + ".out"
-			wantLines := SplitLines(MustReadTestdataFile(wantFile))
-			if diff := cmp.Diff(wantLines, gotLines); diff != "" {
-				if *flagUpdate {
-					err := os.WriteFile(wantFile, []byte(strings.Join(gotLines, "\n")), 0644)
-					if err != nil {
-						t.Errorf("write error: %v", err)
-					}
-				} else {
-					t.Errorf("Eval() mismatch (-want +got):\n%s", diff)
-					t.Errorf("To update: go test ./internal/gml -update")
+			goldenFile := "testdata/" + tt.name + ".out"
+			gotLines, err := checkRenderArgsVsGolden(got, st, goldenFile)
+			if err == nil {
+				return
+			}
+			if *flagUpdate {
+				err := os.WriteFile(goldenFile, []byte(strings.Join(gotLines, "\n")), 0644)
+				if err != nil {
+					t.Errorf("write error: %v", err)
 				}
+			} else {
+				t.Error(err)
+				t.Errorf("To update: go test ./internal/gml -update")
 			}
 		})
 	}

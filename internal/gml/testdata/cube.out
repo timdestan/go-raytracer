@@ -1,47 +1,53 @@
 render 1024 768 cube.ppm
-  fov: +90.00    
-  depth: 7
-  ambient: +0.20      +0.20      +0.20     
-  light:
-    position: -10.00     +10.00     +0.00     
-    color: +1.00      +1.00      +1.00     
-  union:
-    plane:
-      xform:
-        +0.71     -0.71     +0.00     +0.00     
-        -0.00     -0.00     +1.00     +0.00     
-        -0.71     -0.71     -0.00     +8.00     
-        +0.00     +0.00     +0.00     +1.00     
-      surface:
-        color: +0.50      +0.50      +0.50     
-        refl: +0.85     
-        kd: +0.30     
-        ks: +0.85     
-        n: +1.00     
-  union:
-    plane:
-      xform:
-        +1.00     +0.00     +0.00     +0.00     
-        +0.00     +1.00     +0.00     -3.00     
-        +0.00     +0.00     +1.00     +0.00     
-        +0.00     +0.00     +0.00     +1.00     
-      surface:
-        code: fabs apply /v fabs apply /u /face { frac 0.5 addf floor /i i } /toIntCoord texture u toIntCoord apply get v toIntCoord apply get 0.3 0.9 1.0
-        env:
-          c: Cube(...)
-          white: [1, 1, 1]
-          blue: [0, 0, 1]
-          texture: [[[0, 0, 1], [1, 1, 1]], [[1, 1, 1], [0, 0, 1]]]
-          fabs: Closure(/i i 0.0 lessf { i negf 0.5 addf } { i } if, env={c: Cube(...), white: [1, 1, 1], blue: [0, 0, 1], texture: [[[0, 0, 1], [1, 1, 1]], [[1, 1, 1], [0, 0, 1]]]})
-    cube:
-      xform:
-        -1.41     +0.00     +1.41     +0.00     
-        +1.00     +1.41     +1.00     -0.50     
-        -1.00     +1.41     -1.00     +4.00     
-        +0.00     +0.00     +0.00     +1.00     
-      surface:
-        color: +1.00      +0.50      +0.50     
-        refl: +0.00     
-        kd: +1.00     
-        ks: +0.00     
-        n: +1.00     
+    fov: +90.00    
+    depth: 7
+    ambient: +0.20      +0.20      +0.20     
+    light:
+        position: -10.00     +10.00     +0.00     
+        color: +1.00      +1.00      +1.00     
+    union:
+        plane:
+            xform:
+                +0.71     -0.71     +0.00     +0.00     
+                -0.00     -0.00     +1.00     +0.00     
+                -0.71     -0.71     -0.00     +8.00     
+                +0.00     +0.00     +0.00     +1.00     
+            surface:
+                color: +0.50      +0.50      +0.50     
+                reflectivity: +0.85     
+                fuzz: +0.00     
+                transparency: +0.00     
+                refractiveIndex: +0.00     
+                kd: +0.30     
+                ks: +0.85     
+                n: +1.00     
+        union:
+            plane:
+                xform:
+                    +1.00     +0.00     +0.00     +0.00     
+                    +0.00     +1.00     +0.00     -3.00     
+                    +0.00     +0.00     +1.00     +0.00     
+                    +0.00     +0.00     +0.00     +1.00     
+                surface:
+                    code: fabs apply /v fabs apply /u /face { frac 0.5 addf floor /i i } /toIntCoord texture u toIntCoord apply get v toIntCoord apply get 0.3 0.9 1.0
+                    env:
+                        c: Cube(...)
+                        white: [1, 1, 1]
+                        blue: [0, 0, 1]
+                        texture: [[[0, 0, 1], [1, 1, 1]], [[1, 1, 1], [0, 0, 1]]]
+                        fabs: Closure(/i i 0.0 lessf { i negf 0.5 addf } { i } if, env={c: Cube(...), white: [1, 1, 1], blue: [0, 0, 1], texture: [[[0, 0, 1], [1, 1, 1]], [[1, 1, 1], [0, 0, 1]]]})
+            cube:
+                xform:
+                    -1.41     +0.00     +1.41     +0.00     
+                    +1.00     +1.41     +1.00     -0.50     
+                    -1.00     +1.41     -1.00     +4.00     
+                    +0.00     +0.00     +0.00     +1.00     
+                surface:
+                    color: +1.00      +0.50      +0.50     
+                    reflectivity: +0.00     
+                    fuzz: +0.00     
+                    transparency: +0.00     
+                    refractiveIndex: +0.00     
+                    kd: +1.00     
+                    ks: +0.00     
+                    n: +1.00     

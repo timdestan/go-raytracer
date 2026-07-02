@@ -20,6 +20,11 @@ type RenderArgs struct {
 	Width        int     // Pixels
 	Height       int     // Pixels
 	File         string
+
+	// Background gradient
+
+	BgColorStart prim.Vec3
+	BgColorEnd   prim.Vec3
 }
 
 type EvalState struct {
@@ -120,7 +125,6 @@ type Material struct {
 
 	Reflectivity float64 // 0 for diffuse, 1 for perfect mirror reflection; GML surfaces use ks
 
-	// Not supported via GML (only used by the canned example scene).
 	Fuzziness       float64 // For fuzzy reflections (0 = no fuzz, 1 = max fuzz)
 	Transparency    float64 // 0.0 (opaque) to 1.0 (fully transparent)
 	RefractiveIndex float64 // For transparent materials (1.0 = air, 1.5 = glass)
@@ -377,6 +381,15 @@ func (e *EvalState) Clone() *EvalState {
 	}
 }
 
+func typeMismatchError[ExpectedType Value](e *EvalState, got Value) error {
+	zero := *new(ExpectedType) // for error message formatting.
+	pos := e.CurrToken.Position()
+
+	return fmt.Errorf(
+		"%stype mismatch (evaluating %s): expected %T, got %v (%T)",
+		pos.prefix(), TokenGroupDebugString(e.CurrToken), zero, got, got)
+}
+
 func PopValue[T Value](e *EvalState) (T, error) {
 	v, err := e.Pop()
 	if err != nil {
@@ -384,9 +397,7 @@ func PopValue[T Value](e *EvalState) (T, error) {
 	}
 	derived, ok := v.(T)
 	if !ok {
-		zero := *new(T)
-		pos := e.CurrToken.Position()
-		return zero, fmt.Errorf("%stype mismatch (evaluating %s): expected %T, got %v (%T)", pos.prefix(), TokenGroupDebugString(e.CurrToken), zero, v, v)
+		return *new(T), typeMismatchError[T](e, v)
 	}
 	return derived, nil
 }
@@ -416,6 +427,19 @@ func Pop3[T Value](e *EvalState) (T, T, T, error) {
 		return x, y, z, err
 	}
 	return x, y, z, nil
+}
+
+func PopN[T Value](n int, e *EvalState) ([]T, error) {
+	ts := make([]T, n)
+	var err error
+	// Fill in backwards to get the sensible order out.
+	for i := n - 1; i >= 0; i-- {
+		ts[i], err = PopValue[T](e)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return ts, nil
 }
 
 type stateModifier = func(*EvalState) error
@@ -451,12 +475,14 @@ func init() {
 	registerBuiltin("get", get)
 	registerBuiltin("lessi", less[VInt])
 	registerBuiltin("lessf", less[VReal])
+	registerBuiltin("material", material)
 	registerBuiltin("negi", neg[VInt])
 	registerBuiltin("negf", neg[VReal])
 	registerBuiltin("plane", plane)
 	registerBuiltin("point", point)
 	registerBuiltin("pointlight", pointlight)
 	registerBuiltin("render", render)
+	registerBuiltin("renderWithBgGradient", renderWithBgGradient)
 	registerBuiltin("rotatex", rotatex)
 	registerBuiltin("rotatey", rotatey)
 	registerBuiltin("rotatez", rotatez)
@@ -573,10 +599,25 @@ func EvalSurfaceFn(face int, u, v float64, state *EvalState, surfaceFn *VSurface
 		return nil, err
 	}
 
+	// Pop one value.
+	firstVal, err := PopValue[Value](state)
+	if err != nil {
+		return nil, err
+	}
+	if m, ok := firstVal.(Material); ok {
+		return &m, nil
+	}
+	// Else, we expect the usual setup:
+
 	// x y z point        % surface color
 	// 1.0 0.2 1.0		  % kd ks n
 
-	kd, ks, n, err := Pop3[VReal](state)
+	n, ok := firstVal.(VReal)
+	if !ok {
+		return nil, typeMismatchError[VReal](state, n)
+	}
+
+	kd, ks, err := Pop2[VReal](state)
 	if err != nil {
 		return nil, err
 	}
@@ -679,6 +720,36 @@ func less[VType numericValue](e *EvalState) error {
 		return err
 	}
 	e.Push(VBool(x < y))
+	return nil
+}
+
+// material is my addition to the original GML spec
+//
+// Any surface function is allowed to return either a Material object *OR*
+// the color, Kd, Ks, N values expected by the original spec.
+func material(e *EvalState) error {
+	// color refl fuzz transparency refr kd ks n material
+
+	floats, err := PopN[VReal](7, e)
+	if err != nil {
+		return err
+	}
+
+	color, err := PopValue[*prim.Vec3](e)
+	if err != nil {
+		return err
+	}
+
+	e.Push(Material{
+		Color:            *color,
+		Reflectivity:     float64(floats[0]),
+		Fuzziness:        float64(floats[1]),
+		Transparency:     float64(floats[2]),
+		RefractiveIndex:  float64(floats[3]),
+		Kd:               float64(floats[4]),
+		Ks:               float64(floats[5]),
+		SpecularExponent: float64(floats[6]),
+	})
 	return nil
 }
 
@@ -822,53 +893,50 @@ func union(e *EvalState) error {
 	return nil
 }
 
-func render(e *EvalState) error {
+func popRenderArgs(e *EvalState) (*RenderArgs, error) {
 	// Pop the values of RenderArgs, reverse order.
 	// amb lights obj depth fov wid ht file render
 	file, err := PopValue[VString](e)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	height, err := PopValue[VInt](e)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	width, err := PopValue[VInt](e)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	fov, err := PopValue[VReal](e)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	depth, err := PopValue[VInt](e)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	obj, err := PopValue[SceneObject](e)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	lights, err := PopValue[VArray](e)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	amb, err := PopValue[*prim.Vec3](e)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	lightValues := make([]*PointLight, len(lights.Elements))
 	for i, l := range lights.Elements {
 		if l, ok := l.(*PointLight); ok {
 			lightValues[i] = l
 		} else {
-			return fmt.Errorf("expected lights array to contain *PointLight, got %T", l)
+			return nil, fmt.Errorf("expected lights array to contain *PointLight, got %T", l)
 		}
 	}
-	if e.Render == nil {
-		return fmt.Errorf("render function not set")
-	}
-	return e.Render(e, &RenderArgs{
+	return &RenderArgs{
 		Width:        int(width),
 		Height:       int(height),
 		File:         string(file),
@@ -877,5 +945,38 @@ func render(e *EvalState) error {
 		Scene:        obj,
 		AmbientLight: amb,
 		Lights:       lightValues,
-	})
+	}, nil
+}
+
+func render(e *EvalState) error {
+	renderArgs, err := popRenderArgs(e)
+	if err != nil {
+		return err
+	}
+	if e.Render == nil {
+		return fmt.Errorf("render function not set")
+	}
+	return e.Render(e, renderArgs)
+}
+
+func renderWithBgGradient(e *EvalState) error {
+	// "optional" bg parameters are after the required ones, so we must
+	// pop them first.
+
+	bgStart, bgEnd, err := Pop2[*prim.Vec3](e)
+	if err != nil {
+		return err
+	}
+	renderArgs, err := popRenderArgs(e)
+	if err != nil {
+		return err
+	}
+
+	renderArgs.BgColorStart = *bgStart
+	renderArgs.BgColorEnd = *bgEnd
+
+	if e.Render == nil {
+		return fmt.Errorf("render function not set")
+	}
+	return e.Render(e, renderArgs)
 }

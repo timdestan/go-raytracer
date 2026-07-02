@@ -24,7 +24,7 @@ func RenderArgsToLines(args *RenderArgs, idMapping *IDMapping) []string {
 	var lines []string
 	indent := 0
 	add := func(s string) {
-		lines = append(lines, strings.Repeat("  ", indent)+s)
+		lines = append(lines, strings.Repeat("    ", indent)+s)
 	}
 
 	fmtFloat := func(x float64) string {
@@ -46,6 +46,13 @@ func RenderArgsToLines(args *RenderArgs, idMapping *IDMapping) []string {
 	indent++
 	add(fmt.Sprintf("fov: %s", fmtFloat(args.Fov)))
 	add(fmt.Sprintf("depth: %d", args.Depth))
+	if !args.BgColorStart.IsZero() || !args.BgColorEnd.IsZero() {
+		add("background-gradient:")
+		indent++
+		add("p1: " + fmt3(&args.BgColorStart))
+		add("p2: " + fmt3(&args.BgColorEnd))
+		indent--
+	}
 	add("ambient: " + fmt3(args.AmbientLight))
 	for _, l := range args.Lights {
 		add("light:")
@@ -76,15 +83,18 @@ func RenderArgsToLines(args *RenderArgs, idMapping *IDMapping) []string {
 			for _, b := range bindings {
 				add(b.DebugStringCtx(debugStringCtx))
 			}
+			indent--
 		} else {
 			assert(fn.Material != nil, "invalid state for VSurfaceFn")
 			add("color: " + fmt3(&fn.Material.Color))
-			add("refl: " + fmtFloat(fn.Material.Reflectivity))
+			add("reflectivity: " + fmtFloat(fn.Material.Reflectivity))
+			add("fuzz: " + fmtFloat(fn.Material.Fuzziness))
+			add("transparency: " + fmtFloat(fn.Material.Transparency))
+			add("refractiveIndex: " + fmtFloat(fn.Material.RefractiveIndex))
 			add("kd: " + fmtFloat(fn.Material.Kd))
 			add("ks: " + fmtFloat(fn.Material.Ks))
 			add("n: " + fmtFloat(fn.Material.SpecularExponent))
 		}
-		indent--
 	}
 
 	addXform := func(m4 prim.Mat4) {

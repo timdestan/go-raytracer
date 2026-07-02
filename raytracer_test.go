@@ -47,6 +47,7 @@ func checkImages(got image.Image, goldenFilePath string) error {
 	if ssim < minSSIM {
 		return fmt.Errorf("SSIM is %f, want >= %f (`go test . --update` to update goldens)", ssim, minSSIM)
 	}
+	fmt.Printf("SSIM for %s is %.3f\n", goldenFilePath, ssim)
 	return nil
 }
 
@@ -73,8 +74,11 @@ func compareImages(t *testing.T, got image.Image, goldenFilePath string) {
 	}
 }
 
-func TestRenderCannedScene(t *testing.T) {
-	got := Render(ExampleCannedScene(1920, 1200))
+func TestRenderCanned(t *testing.T) {
+	got, err := ParseAndRenderGML(gml.MustReadTestdataFile("testdata/canned.gml"))
+	if err != nil {
+		t.Fatalf("ParseAndRenderGML: %v", err)
+	}
 	compareImages(t, got, "testdata/goldens/example_canned.png")
 }
 
@@ -100,7 +104,10 @@ func TestRenderCube(t *testing.T) {
 
 func BenchmarkCanned(b *testing.B) {
 	for b.Loop() {
-		Render(ExampleCannedScene(1920, 1200))
+		_, err := ParseAndRenderGML(gml.MustReadTestdataFile("testdata/canned.gml"))
+		if err != nil {
+			b.Fatalf("BenchmarkCanned: %v", err)
+		}
 	}
 }
 

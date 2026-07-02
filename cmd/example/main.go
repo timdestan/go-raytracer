@@ -13,13 +13,7 @@ import (
 
 var (
 	gmlFile = flag.String("gml_file", "", "gml filename to run")
-
 	outFile = flag.String("out_file", "", "png filename to write")
-)
-
-const (
-	WIDTH_PX  = 1920
-	HEIGHT_PX = 1200
 )
 
 func writeImage(img image.Image, filename string) error {
@@ -29,10 +23,6 @@ func writeImage(img image.Image, filename string) error {
 	}
 	defer f.Close()
 	return png.Encode(f, img)
-}
-
-func renderCannedScene() image.Image {
-	return rt.Render(rt.ExampleCannedScene(WIDTH_PX, HEIGHT_PX))
 }
 
 func renderFromGMLFile(filename string) (image.Image, error) {
@@ -45,21 +35,19 @@ func renderFromGMLFile(filename string) (image.Image, error) {
 
 func main() {
 	flag.Parse()
+
+	if len(*gmlFile) == 0 {
+		log.Fatal("--gml_file is required")
+	}
 	if len(*outFile) == 0 {
 		log.Fatal("--out_file is required")
 	}
 
-	var img image.Image
-	var err error
-	if len(*gmlFile) == 0 {
-		log.Print("--gml_file not specified, using canned scene.")
-		img = renderCannedScene()
-	} else {
-		img, err = renderFromGMLFile(*gmlFile)
-		if err != nil {
-			log.Fatal(err)
-		}
+	img, err := renderFromGMLFile(*gmlFile)
+	if err != nil {
+		log.Fatal(err)
 	}
+
 	if err = writeImage(img, *outFile); err != nil {
 		log.Fatal(err)
 	}

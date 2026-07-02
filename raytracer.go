@@ -45,8 +45,6 @@ type SceneObject interface {
 }
 
 type Sphere struct {
-	Center        prim.Vec3
-	Radius        float64
 	SurfaceFn     gml.VSurfaceFn
 	EvalState     *gml.EvalState
 	ObjectToWorld prim.Mat4
@@ -64,14 +62,36 @@ func rayToObjectSpace(ray Ray, worldToObject *prim.Mat4) Ray {
 func (sphere *Sphere) Intersect(ray Ray) *Hit {
 	ray = rayToObjectSpace(ray, &sphere.WorldToObject)
 
-	L := sphere.Center.Sub(ray.Origin)
-	t_ca := L.Dot(ray.Direction)
-	if t_ca < 0.0 {
-		// Center of the sphere is behind the screen.
+	// Note: ray.Direction is not necessarily unit length here, since
+	// WorldToObject may include a scale. We can't use the simplified
+	// unit-direction geometric formula (t_ca, t_hc) in that case, so solve
+	// the general quadratic instead:
+	//
+	// a*t^2 + 2*halfB*t + c = 0
+	//
+	// where
+	//
+	// a     = D·D
+	// halfB = O·D
+	// c     = O·O − r^2
+	//
+	// This still yields hit.T values that are
+	// comparable across objects with different scales, since scaling the local
+	// direction exactly cancels out when mapping the hit back to world space.
+
+	const radiusSquared = 1.0
+	oc := ray.Origin // center is 0, so this is ray.Origin - center
+	a := ray.Direction.Dot(ray.Direction)
+	halfB := oc.Dot(ray.Direction)
+	c := oc.Dot(oc) - radiusSquared
+
+	discriminant := halfB*halfB - a*c
+	if discriminant < 0.0 {
 		return nil
 	}
-	t_hc := math.Sqrt(square(sphere.Radius) - (L.Dot(L) - square(t_ca)))
-	t0 := t_ca - t_hc
+	sqrtD := math.Sqrt(discriminant)
+
+	t0 := (-halfB - sqrtD) / a
 	if t0 > 0.0 {
 		return &Hit{
 			Object:   sphere,
@@ -80,7 +100,7 @@ func (sphere *Sphere) Intersect(ray Ray) *Hit {
 		}
 	}
 	// TODO: Should we include these far hits?
-	// t1 := t_ca + t_hc
+	// t1 := (-halfB + sqrtD) / a
 	// if t1 > 0.0 {
 	// 	 ...
 	// }
@@ -92,11 +112,15 @@ func (sphere *Sphere) ComputeSurfaceProps(hit Hit) (HitEx, error) {
 	if err != nil {
 		return HitEx{}, err
 	}
-	normalDir := sphere.NormalMat.MulDir(hit.PointObj.Sub(sphere.Center))
+	// TODO: Skipping this transformation and using hit.PointObj breaks if
+	// we ever add non-uniform scales.
+
+	// We would need to subtract sphere center from point but it's always 0
+	// normalDir := sphere.NormalMat.MulDir(hit.PointObj)
 	return HitEx{
 		Hit:         hit,
 		PointWorld:  sphere.ObjectToWorld.MulPoint(hit.PointObj),
-		NormalWorld: normalDir.Normalize(),
+		NormalWorld: hit.PointObj,
 		Material:    material,
 	}, nil
 }
@@ -117,9 +141,8 @@ func computeSphereSurfaceMaterial(sphere *Sphere, point prim.Vec3) (*gml.Materia
 	// v = (y + 1.0) / 2.0
 	// u = acos (z / sqrt (1.0 - y * y)) / (2.0 * pi)
 
-	// GML spheres should always be unit spheres (the transformation matrix may
-	// scale and move them). The spheres from example scene break this rule,
-	// but these set Material directly so should not reach this point.
+	// GML spheres are always unit spheres (the transformation matrix may
+	// scale and move them).
 	if math.Abs(point.Y) > 1 {
 		return nil, fmt.Errorf("expected |pt.Y| <= 1 in sphere surface, got %v", point)
 	}
@@ -131,7 +154,8 @@ func computeSphereSurfaceMaterial(sphere *Sphere, point prim.Vec3) (*gml.Materia
 }
 
 func (v *Sphere) String() string {
-	return fmt.Sprintf("Sphere(Center: %v, Radius: %v)", v.Center, v.Radius)
+	// This is now kinda useless, should maybe show the transformation?
+	return "Sphere()"
 }
 
 type Plane struct {
@@ -441,10 +465,6 @@ func traceRay(scene *Scene, threadState *SceneThreadState, ray Ray, depth int) p
 	return lighting.Scale(1.0 - mat.Transparency).Add(reflectedColor.Scale(kr).Add(refractedColor.Scale(1.0 - kr))).Mul(&mat.Color).Clamp()
 }
 
-func square(x float64) float64 {
-	return x * x
-}
-
 // SceneThreadState holds the per-thread evaluation state for a single thread.
 type SceneThreadState struct {
 	EvalState *gml.EvalState
@@ -605,8 +625,8 @@ func ConvertRenderArgsToScene(args *gml.RenderArgs, state *gml.EvalState) (*Scen
 		RecursionDepth: args.Depth,
 		Lights:         args.Lights,
 		AmbientLight:   *args.AmbientLight,
-
-		// Note: BgColorStart, BgColorEnd are defaults (black background)
+		BgColorStart:   args.BgColorStart,
+		BgColorEnd:     args.BgColorEnd,
 	}
 
 	scene.PerThreadStates = make([]SceneThreadState, numRenderThreads)
@@ -657,8 +677,6 @@ func convertGMLSceneObjects(sceneObjects []gml.SceneObject, evalState *gml.EvalS
 			objectToWorld, worldToObject := createMatrices(typedObject.TransformMat)
 
 			results = append(results, &Sphere{
-				Center:        typedObject.Center,
-				Radius:        float64(typedObject.Radius),
 				SurfaceFn:     typedObject.SurfaceFn,
 				EvalState:     evalState,
 				ObjectToWorld: objectToWorld,

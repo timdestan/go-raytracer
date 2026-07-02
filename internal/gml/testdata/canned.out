@@ -1,0 +1,73 @@
+render 1900 1200 canned.ppm
+    fov: +120.00   
+    depth: 7
+    background-gradient:
+        p1: +0.00      +0.00      +0.00     
+        p2: +0.50      +0.70      +1.00     
+    ambient: +0.10      +0.10      +0.10     
+    light:
+        position: +5.00      +5.00      +0.00     
+        color: +1.00      +1.00      +1.00     
+    union:
+        sphere:
+            xform:
+                +1.00     +0.00     +0.00     -2.00     
+                +0.00     +1.00     +0.00     +0.00     
+                +0.00     +0.00     +1.00     +6.00     
+                +0.00     +0.00     +0.00     +1.00     
+            surface:
+                color: +0.20      +0.80      +0.20     
+                reflectivity: +0.80     
+                fuzz: +0.00     
+                transparency: +0.00     
+                refractiveIndex: +0.00     
+                kd: +1.00     
+                ks: +0.00     
+                n: +0.00     
+        union:
+            sphere:
+                xform:
+                    +1.00     +0.00     +0.00     +2.00     
+                    +0.00     +1.00     +0.00     +0.00     
+                    +0.00     +0.00     +1.00     +8.00     
+                    +0.00     +0.00     +0.00     +1.00     
+                surface:
+                    color: +0.20      +0.20      +0.80     
+                    reflectivity: +0.20     
+                    fuzz: +0.50     
+                    transparency: +0.00     
+                    refractiveIndex: +0.00     
+                    kd: +1.00     
+                    ks: +0.00     
+                    n: +0.00     
+            union:
+                sphere:
+                    xform:
+                        +1.00     +0.00     +0.00     +0.00     
+                        +0.00     +1.00     +0.00     +0.00     
+                        +0.00     +0.00     +1.00     +5.00     
+                        +0.00     +0.00     +0.00     +1.00     
+                    surface:
+                        color: +0.80      +0.20      +0.20     
+                        reflectivity: +0.00     
+                        fuzz: +0.00     
+                        transparency: +0.90     
+                        refractiveIndex: +1.50     
+                        kd: +1.00     
+                        ks: +0.80     
+                        n: +50.00    
+                sphere:
+                    xform:
+                        +1000.00  +0.00     +0.00     +0.00     
+                        +0.00     +1000.00  +0.00     -1001.00  
+                        +0.00     +0.00     +1000.00  +5.00     
+                        +0.00     +0.00     +0.00     +1.00     
+                    surface:
+                        color: +0.80      +0.80      +0.80     
+                        reflectivity: +0.00     
+                        fuzz: +0.00     
+                        transparency: +0.00     
+                        refractiveIndex: +0.00     
+                        kd: +1.00     
+                        ks: +0.00     
+                        n: +0.00     
