@@ -287,10 +287,9 @@ func computeLighting(hit *HitEx, scene *Scene, objects []SceneObject, ray Ray) p
 			continue
 		}
 
-		// Diffuse term
-		nDotL := hit.NormalWorld.Dot(lightDir)
-		// TODO: Should we be skipping the contribution of lights if this dot product
-		// is not positive?
+		// Diffuse term. Clamp to 0 so surfaces facing away from the light
+		// don't get a negative contribution that eats into the ambient term.
+		nDotL := math.Max(0, hit.NormalWorld.Dot(lightDir))
 		diffuse := light.Color.Scale(nDotL * mat.Kd)
 
 		// Specular term (Blinn-Phong reflection)
