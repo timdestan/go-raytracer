@@ -39,7 +39,7 @@ func checkImages(got image.Image, goldenFilePath string) error {
 	if err != nil {
 		return err
 	}
-	const minSSIM = 0.95
+	const minSSIM = 0.99
 	ssim, err := prim.SSIM(got, want)
 	if err != nil {
 		return fmt.Errorf("Error in SSIM computation: %v", err)
