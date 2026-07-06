@@ -18,10 +18,6 @@ type Ray struct {
 	Direction prim.Vec3
 }
 
-func (r *Ray) String() string {
-	return fmt.Sprintf("Ray(Origin: %v, Direction: %v)", r.Origin, r.Direction)
-}
-
 type Hit struct {
 	Object   SceneObject
 	T        float64
@@ -153,11 +149,6 @@ func computeSphereSurfaceMaterial(sphere *Sphere, point prim.Vec3) (*gml.Materia
 	return gml.EvalSurfaceFn(0, u, v, sphere.EvalState, &sphere.SurfaceFn)
 }
 
-func (v *Sphere) String() string {
-	// This is now kinda useless, should maybe show the transformation?
-	return "Sphere()"
-}
-
 type Plane struct {
 	Side          prim.CubeSide // always 0 if not part of cube
 	Normal        prim.Vec3
@@ -211,10 +202,6 @@ func computePlaneSurfaceMaterial(plane *Plane, point prim.Vec3) (*gml.Material, 
 	v := point.Z
 
 	return gml.EvalSurfaceFn(int(plane.Side), u, v, plane.EvalState, &plane.SurfaceFn)
-}
-
-func (p *Plane) String() string {
-	return fmt.Sprintf("Plane(Normal: %v, D: %v)", p.Normal, p.D)
 }
 
 type Cube struct {

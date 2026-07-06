@@ -47,30 +47,24 @@ func checkImages(got image.Image, goldenFilePath string) error {
 	if ssim < minSSIM {
 		return fmt.Errorf("SSIM is %f, want >= %f (`go test . --update` to update goldens)", ssim, minSSIM)
 	}
-	fmt.Printf("SSIM for %s is %.3f\n", goldenFilePath, ssim)
+	// fmt.Printf("SSIM for %s is %.3f\n", goldenFilePath, ssim)
 	return nil
 }
 
 func compareImages(t *testing.T, got image.Image, goldenFilePath string) {
 	t.Helper()
 
-	err := checkImages(got, goldenFilePath)
-	if err == nil {
-		// To avoid version control churn, even if the update flag is on,
-		// we only update when the difference is large enough to trigger
-		// a failure here. We could add a --no_really_please_update flag
-		// if needed...
+	if *updateFlag {
+		if err := writeImage(got, goldenFilePath); err != nil {
+			t.Errorf("Failed to update %s", goldenFilePath)
+		} else {
+			t.Logf("Wrote new golden to %s", goldenFilePath)
+		}
 		return
 	}
-	if !*updateFlag {
-		t.Fatal(err)
-	}
 
-	// Update the golden.
-	if err := writeImage(got, goldenFilePath); err != nil {
-		t.Errorf("Failed to update %s", goldenFilePath)
-	} else {
-		t.Logf("Wrote new golden to %s", goldenFilePath)
+	if err := checkImages(got, goldenFilePath); err != nil {
+		t.Fatal(err)
 	}
 }
 
