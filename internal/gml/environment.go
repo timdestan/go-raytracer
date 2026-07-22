@@ -26,6 +26,9 @@ func (b *Binding) DebugStringCtx(ctx DebugStringContext) string {
 
 type Environment struct {
 	bindings map[int]Value
+	// TODO: Should environment just have a pointer to the IDMapping? This
+	// would simplify the need to pass it around when constructing the debug
+	// string.
 }
 
 func newEnv() Environment {
@@ -37,15 +40,11 @@ func newEnv() Environment {
 // Bindings returns a slice of the bindings that
 // have been set in the environment.
 func (env *Environment) Bindings() []Binding {
-	var bs []Binding
-	ids := make([]int, 0, len(env.bindings))
-	for id := range env.bindings {
-		ids = append(ids, id)
+	bs := make([]Binding, 0, len(env.bindings))
+	for id, v := range env.bindings {
+		bs = append(bs, Binding{id, v})
 	}
-	slices.Sort(ids)
-	for _, id := range ids {
-		bs = append(bs, Binding{id, env.bindings[id]})
-	}
+	slices.SortFunc(bs, func(a, b Binding) int { return a.ID - b.ID })
 	return bs
 }
 

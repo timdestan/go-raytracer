@@ -11,12 +11,34 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/ergochat/readline"
 	"github.com/timdestan/go-raytracer"
 	"github.com/timdestan/go-raytracer/internal/gml"
 )
+
+type Breakpoint struct {
+	Line int // Just a line number for now.
+}
+
+func parseBreakpoint(arg string) (*Breakpoint, error) {
+	val, err := strconv.ParseInt(arg, 10, 64)
+	if err != nil {
+		return nil, err
+	}
+	if val <= 0 {
+		return nil, fmt.Errorf("breakpoint must be positive line number.")
+	}
+
+	// TODO: Should we check it's in range of the file?
+	// TODO: Should we restrict breakpoints to the current file, so they don't
+	//       apply if we reload the file? Probably....
+
+	return &Breakpoint{Line: int(val)}, nil
+}
 
 type Command struct {
 	// Symbol is the canonical name of the command.
@@ -29,9 +51,44 @@ type Command struct {
 }
 
 type State struct {
-	args      []string
-	evalState *gml.EvalState
-	commands  []*Command
+	args          []string
+	evalState     *gml.EvalState
+	pc            int
+	program       gml.TokenList
+	commands      []*Command
+	commandLookup map[string]*Command
+	breakpoints   []*Breakpoint
+}
+
+func (s *State) toggleBreakpoint(bp *Breakpoint) (wasPresent bool) {
+	for i := 0; i < len(s.breakpoints); i++ {
+		s.breakpoints = slices.Delete(s.breakpoints, i, i+1)
+		return true
+	}
+	s.breakpoints = append(s.breakpoints, bp)
+	return false
+}
+
+func (s *State) findMatchingBreakpoint(line int) *Breakpoint {
+	for _, bp := range s.breakpoints {
+		if bp.Line == line {
+			return bp
+		}
+	}
+	return nil
+}
+
+func (s *State) loadFile(filepath string) error {
+	programText, err := os.ReadFile(filepath)
+	if err != nil {
+		return err
+	}
+	prog, err := s.evalState.Parse(string(programText))
+	if err == nil {
+		s.program = prog
+		s.pc = 0
+	}
+	return err
 }
 
 // errQuit is a signal to the main loop to quit.
@@ -61,17 +118,19 @@ func main() {
 		return nil
 	}
 
-	var commands []*Command
-	commandLookup := make(map[string]*Command)
+	state := State{
+		evalState:     evalState,
+		commandLookup: make(map[string]*Command),
+	}
 
 	registerCommand := func(command *Command) {
 		mustAddToLookup := func(symbol string) {
-			if commandLookup[symbol] != nil {
-				log.Fatalf("duplicate command: %v vs %v", command, commandLookup[symbol])
+			if state.commandLookup[symbol] != nil {
+				log.Fatalf("duplicate command: %v vs %v", command, state.commandLookup[symbol])
 			}
-			commandLookup[symbol] = command
+			state.commandLookup[symbol] = command
 		}
-		commands = append(commands, command)
+		state.commands = append(state.commands, command)
 		mustAddToLookup(command.Symbol)
 		for _, alias := range command.Aliases {
 			mustAddToLookup(alias)
@@ -82,22 +141,118 @@ func main() {
 		Symbol:       ":load",
 		Aliases:      []string{":l"},
 		ExpectedArgs: []string{"<filename>"},
-		HelpText:     "Load a file",
+		HelpText:     "Load and parse a file",
 		Run: func(st *State) error {
 			if len(st.args) < 1 {
-				return errors.New("usage: :load <filename>")
+				return errors.New("usage: :load filename")
 			}
-			prog, err := os.ReadFile(st.args[0])
-			if err != nil {
-				return err
-			}
-			return st.evalState.ParseAndEval(string(prog))
+			return st.loadFile(st.args[0])
 		},
 	})
+
+	registerCommand(&Command{
+		Symbol:   ":step",
+		Aliases:  []string{":s"},
+		HelpText: "Runs a single step of the evaluator",
+		Run: func(st *State) error {
+			if len(st.args) != 0 {
+				return errors.New("usage: :step")
+			}
+			if len(st.program) == 0 {
+				return errors.New("No program loaded, use :load filename to load a program")
+			}
+			if st.pc >= len(st.program) {
+				return errors.New("program halted")
+			}
+			curr := st.program[st.pc]
+			defer func() { st.pc++ }()
+			fmt.Printf("%s: %s\n", curr.Position().String(), gml.TokenGroupDebugString(curr))
+			return st.evalState.EvalOneStep(curr)
+		},
+	})
+
+	registerCommand(&Command{
+		Symbol:   ":break",
+		Aliases:  []string{":b"},
+		HelpText: "Sets or clears a breakpoint at a given line. Run without arguments to list current breakpoints.",
+		Run: func(st *State) error {
+			if len(st.args) > 1 {
+				return errors.New("usage: :break line?")
+			}
+			if len(st.args) == 0 {
+				fmt.Printf("All breakpoints:\n")
+				if len(st.breakpoints) == 0 {
+					fmt.Printf("  (none)\n")
+				}
+				for _, b := range st.breakpoints {
+					fmt.Printf("  Line: %d\n", b.Line)
+				}
+			} else {
+				bp, err := parseBreakpoint(st.args[0])
+				if err != nil {
+					return err
+				}
+				wasExisting := st.toggleBreakpoint(bp)
+				if wasExisting {
+					fmt.Printf("Removed breakpoint at line %d\n", bp.Line)
+				} else {
+					fmt.Printf("Added breakpoint at line %d\n", bp.Line)
+				}
+			}
+			return nil
+		},
+	})
+
+	registerCommand(&Command{
+		Symbol:   ":run",
+		Aliases:  []string{":r"},
+		HelpText: "Runs to the end of the loaded file. If <filename> provided, loads the file first.",
+		Run: func(st *State) error {
+			if len(st.args) > 1 {
+				return errors.New("usage: :run filename?")
+			}
+			if len(st.args) == 1 {
+				if err := st.loadFile(st.args[0]); err != nil {
+					return err
+				}
+			}
+			if len(st.program) == 0 {
+				return errors.New("No program loaded, use :load filename to load a program")
+			}
+			if st.pc >= len(st.program) {
+				return errors.New("program halted")
+			}
+
+			currLine := st.program[st.pc].Position().Line
+			for ; st.pc < len(st.program); st.pc++ {
+				curr := st.program[st.pc]
+
+				// Only trigger breakpoint when we first hit the line.
+				nextLine := curr.Position().Line
+				if nextLine != currLine {
+					bp := st.findMatchingBreakpoint(nextLine)
+					if bp != nil {
+						fmt.Printf("Hit breakpoint at line %d\n", bp.Line)
+						return nil
+					}
+				}
+				currLine = nextLine
+
+				fmt.Printf("%s: %s\n", curr.Position().String(), gml.TokenGroupDebugString(curr))
+				if err := st.evalState.EvalOneStep(curr); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	})
+
 	registerCommand(&Command{
 		Symbol:   ":env",
 		HelpText: "Print the current environment",
 		Run: func(st *State) error {
+			// TODO: Without debug string context, the variable names are only
+			// shown as numeric ids, which is not very useful.
 			fmt.Printf("env: %v\n", st.evalState.Env)
 			return nil
 		},
@@ -160,16 +315,13 @@ func main() {
 			if len(args) == 0 {
 				log.Fatalf("bug in command parser: %q", line)
 			}
-			cmd := commandLookup[args[0]]
+			cmd := state.commandLookup[args[0]]
 			if cmd == nil {
 				fmt.Printf("Unknown command: %v\n", args[0])
 				continue
 			}
-			err := cmd.Run(&State{
-				args:      args[1:],
-				evalState: evalState,
-				commands:  commands,
-			})
+			state.args = args[1:]
+			err := cmd.Run(&state)
 			if errors.Is(err, errQuit) {
 				return
 			}

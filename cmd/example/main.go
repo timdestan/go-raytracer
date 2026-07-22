@@ -7,6 +7,8 @@ import (
 	"image/png"
 	"log"
 	"os"
+	"path/filepath"
+	"strings"
 
 	rt "github.com/timdestan/go-raytracer"
 )
@@ -40,7 +42,13 @@ func main() {
 		log.Fatal("--gml_file is required")
 	}
 	if len(*outFile) == 0 {
-		log.Fatal("--out_file is required")
+		base := filepath.Base(*gmlFile)
+		base, found := strings.CutSuffix(base, ".gml")
+		if !found {
+			log.Fatal("Could not derive --out_file, please specify it.")
+		}
+		*outFile = fmt.Sprintf("output/%s.png", base)
+		log.Printf("Using derived output path: %s", *outFile)
 	}
 
 	img, err := renderFromGMLFile(*gmlFile)

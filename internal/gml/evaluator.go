@@ -27,13 +27,26 @@ type RenderArgs struct {
 	BgColorEnd   prim.Vec3
 }
 
+// TODO: The debugger stuff here is not yet fully baked.
+// The idea is to run a debugger in a separate goroutine.
+
+type DebuggerSignal int
+
+const (
+	DbgContinue DebuggerSignal = iota
+	DbgAbort
+)
+
+type DebuggerFn = func() DebuggerSignal
+
+// TODO: Should EvalState store the TokenList containing the entire program?
 type EvalState struct {
 	CurrToken TokenGroup // The token that is currently being evaluated
 	Stack     []Value
 	IDMapping IDMapping
 	Env       Environment
 	Render    func(*EvalState, *RenderArgs) error
-	Debug     bool
+	Debugger  DebuggerFn
 }
 
 type Value interface {
@@ -171,8 +184,6 @@ func (s *Sphere) Transform(mat *prim.Mat4) SceneObject {
 }
 
 type Cube struct {
-	// We always assume the unit cube as a starting point.
-	// Transformations are handled by TransformMat
 	SurfaceFn    VSurfaceFn
 	TransformMat *prim.Mat4
 }
@@ -186,6 +197,27 @@ func (c *Cube) String() string {
 }
 
 func (c *Cube) Transform(mat *prim.Mat4) SceneObject {
+	copy := *c
+	if copy.TransformMat == nil {
+		copy.TransformMat = mat
+	} else {
+		copy.TransformMat = copy.TransformMat.MulMat(mat)
+	}
+	return &copy
+}
+
+type Cylinder struct {
+	SurfaceFn    VSurfaceFn
+	TransformMat *prim.Mat4
+}
+
+var _ SceneObject = (*Cylinder)(nil)
+
+func (c *Cylinder) String() string {
+	return "Cylinder(...)"
+}
+
+func (c *Cylinder) Transform(mat *prim.Mat4) SceneObject {
 	copy := *c
 	if copy.TransformMat == nil {
 		copy.TransformMat = mat
@@ -237,6 +269,23 @@ func (u *Union) Transform(m *prim.Mat4) SceneObject {
 	return v
 }
 
+type Difference struct {
+	A, B SceneObject // A - B
+}
+
+var _ SceneObject = (*Difference)(nil)
+
+func (d Difference) String() string {
+	return fmt.Sprintf("Difference(%v, %v)", d.A, d.B)
+}
+
+func (d Difference) Transform(m *prim.Mat4) SceneObject {
+	return &Difference{
+		A: d.A.Transform(m),
+		B: d.B.Transform(m),
+	}
+}
+
 type PointLight struct {
 	Position prim.Vec3
 	Color    prim.Vec3 // RGB
@@ -260,15 +309,19 @@ func NewEvalState() *EvalState {
 	}
 }
 
-func (e *EvalState) ParseAndEval(input string) error {
+func (e *EvalState) Parse(input string) (TokenList, error) {
 	p := NewParserWithIDMapping(input, &e.IDMapping)
-	program, err := p.Parse()
+	return p.Parse()
+}
+
+func (e *EvalState) ParseAndEval(input string) error {
+	program, err := e.Parse(input)
 	if err != nil {
 		return err
 	}
 
 	for _, token := range program {
-		if err := e.evalOneStep(token); err != nil {
+		if err := e.EvalOneStep(token); err != nil {
 			return err
 		}
 	}
@@ -277,23 +330,24 @@ func (e *EvalState) ParseAndEval(input string) error {
 
 func (e *EvalState) Eval(program TokenList) error {
 	for _, token := range program {
-		if err := e.evalOneStep(token); err != nil {
+		if err := e.EvalOneStep(token); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (e *EvalState) evalOneStep(token TokenGroup) error {
-	e.CurrToken = token
-	if e.Debug {
-		fmt.Printf("==============================\n")
-		fmt.Printf("next: %v\nstack:\n", TokenGroupDebugString(token))
-		for i, v := range e.Stack {
-			fmt.Printf("  %d: %v\n", i, v)
-		}
-		fmt.Printf("env: %s\n", e.Env.DebugStringCtx(DebugStringContext{&e.IDMapping}))
+var errAborted = errors.New("evaluation was aborted by the user")
+
+func (e *EvalState) EvalOneStep(token TokenGroup) (finalErr error) {
+	if e.Debugger != nil {
+		defer func() {
+			if e.Debugger() == DbgAbort {
+				finalErr = errAborted
+			}
+		}()
 	}
+	e.CurrToken = token
 	switch token := token.(type) {
 	case *IntLiteral:
 		e.Push(VInt(token.Value))
@@ -377,17 +431,29 @@ func (e *EvalState) Clone() *EvalState {
 		Stack:     slices.Clone(e.Stack),
 		Env:       e.Env.Clone(),
 		IDMapping: *e.IDMapping.Clone(),
-		Debug:     e.Debug,
+		Debugger:  e.Debugger,
 	}
 }
 
+type EvalError struct {
+	EvalState *EvalState
+	Err       error
+}
+
+func (e EvalError) Error() string {
+	tok := e.EvalState.CurrToken
+	pos := tok.Position()
+	return fmt.Sprintf("%serror evaluating %s: %v", pos.prefix(), TokenGroupDebugString(tok), e.Err)
+}
+
+func (e EvalError) Unwrap() error { return e.Err }
+
 func typeMismatchError[ExpectedType Value](e *EvalState, got Value) error {
 	zero := *new(ExpectedType) // for error message formatting.
-	pos := e.CurrToken.Position()
-
-	return fmt.Errorf(
-		"%stype mismatch (evaluating %s): expected %T, got %v (%T)",
-		pos.prefix(), TokenGroupDebugString(e.CurrToken), zero, got, got)
+	return &EvalError{
+		EvalState: e,
+		Err:       fmt.Errorf("type mismatch: expected %T, got %v (%T)", zero, got, got),
+	}
 }
 
 func PopValue[T Value](e *EvalState) (T, error) {
@@ -468,14 +534,29 @@ func init() {
 	registerBuiltin("addf", add[VReal])
 	registerBuiltin("addi", add[VInt])
 	registerBuiltin("apply", apply)
+	registerBuiltin("clampf", clamp[VReal])
+	registerBuiltin("cos", cos)
 	registerBuiltin("cube", cube)
+	registerBuiltin("cylinder", cylinder)
 	registerBuiltin("if", if_)
+	registerBuiltin("difference", difference)
+	registerBuiltin("divi", div[VInt])
+	registerBuiltin("divf", div[VReal])
+	registerBuiltin("eqi", eq[VInt])
+	registerBuiltin("eqf", eq[VReal])
 	registerBuiltin("floor", floor)
 	registerBuiltin("frac", frac)
 	registerBuiltin("get", get)
+	registerBuiltin("getx", getx)
+	registerBuiltin("gety", gety)
+	registerBuiltin("getz", getz)
+	registerBuiltin("length", length)
 	registerBuiltin("lessi", less[VInt])
 	registerBuiltin("lessf", less[VReal])
 	registerBuiltin("material", material)
+	registerBuiltin("modi", modi)
+	registerBuiltin("muli", mul[VInt])
+	registerBuiltin("mulf", mul[VReal])
 	registerBuiltin("negi", neg[VInt])
 	registerBuiltin("negf", neg[VReal])
 	registerBuiltin("plane", plane)
@@ -486,28 +567,15 @@ func init() {
 	registerBuiltin("rotatex", rotatex)
 	registerBuiltin("rotatey", rotatey)
 	registerBuiltin("rotatez", rotatez)
+	registerBuiltin("scale", scale)
+	registerBuiltin("sin", sin)
 	registerBuiltin("sphere", sphere)
+	registerBuiltin("sqrt", sqrt)
+	registerBuiltin("subi", sub[VInt])
+	registerBuiltin("subf", sub[VReal])
 	registerBuiltin("translate", translate)
 	registerBuiltin("union", union)
 	registerBuiltin("uscale", uscale)
-}
-
-type numericValue interface {
-	~int | ~int64 | ~float64
-	Value
-}
-
-func add[VType numericValue](e *EvalState) error {
-	a, err := PopValue[VType](e)
-	if err != nil {
-		return err
-	}
-	b, err := PopValue[VType](e)
-	if err != nil {
-		return err
-	}
-	e.Push(a + b)
-	return nil
 }
 
 func apply(e *EvalState) error {
@@ -693,6 +761,24 @@ func cube(e *EvalState) error {
 	return nil
 }
 
+// cylinder creates a cylinder of radius 1 and height 1 with surface properties
+// specified by the function surface. The base of the cylinder is centered at
+// (0, 0, 0) and the top is centered at (0, 1, 0) (i.e., the axis of the
+// cylinder is the Y-axis). Formally, the cylinder is defined by x2 + z2 <= 1
+// and 0 <= y <= 1.
+func cylinder(e *EvalState) error {
+	surfaceFn, err := PopValue[VClosure](e)
+	if err != nil {
+		return err
+	}
+	compiledSurfaceFn, err := maybeSimplifySurfaceFn(&surfaceFn, e)
+	if err != nil {
+		return err
+	}
+	e.Push(&Cylinder{SurfaceFn: compiledSurfaceFn})
+	return nil
+}
+
 // plane creates the half space defined by the
 // equation y <= 0.
 func plane(e *EvalState) error {
@@ -714,13 +800,43 @@ func plane(e *EvalState) error {
 	return nil
 }
 
-func less[VType numericValue](e *EvalState) error {
-	x, y, err := Pop2[VType](e)
+type numericValue interface {
+	~int | ~int64 | ~float64
+	Value
+}
+
+// unaryOp pops 1 arg, applies the given operator, and pushes
+// the result back to the stack.
+func unaryOp[T Value, R Value](e *EvalState, op func(a T) R) error {
+	a, err := PopValue[T](e)
 	if err != nil {
 		return err
 	}
-	e.Push(VBool(x < y))
+	e.Push(op(a))
 	return nil
+}
+
+// binOp pops 2 args of the same type, applies the given operator, and pushes
+// the result back to the stack.
+func binOp[T Value, R Value](e *EvalState, op func(a, b T) R) error {
+	a, b, err := Pop2[T](e)
+	if err != nil {
+		return err
+	}
+	e.Push(op(a, b))
+	return nil
+}
+
+func add[VType numericValue](e *EvalState) error {
+	return binOp(e, func(a, b VType) VType { return a + b })
+}
+
+func sub[VType numericValue](e *EvalState) error {
+	return binOp(e, func(a, b VType) VType { return a - b })
+}
+
+func less[VType numericValue](e *EvalState) error {
+	return binOp(e, func(a, b VType) VBool { return a < b })
 }
 
 // material is my addition to the original GML spec
@@ -753,13 +869,68 @@ func material(e *EvalState) error {
 	return nil
 }
 
-func neg[VType numericValue](e *EvalState) error {
+func clamp[VType numericValue](e *EvalState) error {
 	x, err := PopValue[VType](e)
 	if err != nil {
 		return err
 	}
-	e.Push(-x)
+	if x < 0 {
+		x = 0
+	} else if x > 1 {
+		x = 1
+	}
+	e.Push(x)
 	return nil
+}
+
+func eq[VType numericValue](e *EvalState) error {
+	return binOp(e, func(a, b VType) VBool { return a == b })
+}
+
+func mul[VType numericValue](e *EvalState) error {
+	return binOp(e, func(a, b VType) VType { return a * b })
+}
+
+func div[VType numericValue](e *EvalState) error {
+	return binOp(e, func(a, b VType) VType { return a / b })
+}
+
+func modi(e *EvalState) error {
+	return binOp(e, func(a, b VInt) VInt { return a % b })
+}
+
+func neg[VType numericValue](e *EvalState) error {
+	return unaryOp(e, func(a VType) VType { return -a })
+}
+
+const DEG_TO_RAD = math.Pi / 180.0
+
+func sin(e *EvalState) error {
+	return unaryOp(e, func(a VReal) VReal { return VReal(math.Sin(DEG_TO_RAD * float64(a))) })
+}
+
+func cos(e *EvalState) error {
+	return unaryOp(e, func(a VReal) VReal { return VReal(math.Cos(DEG_TO_RAD * float64(a))) })
+}
+
+func getx(e *EvalState) error {
+	return unaryOp(e, func(v *prim.Vec3) VReal { return VReal(v.X) })
+}
+
+func gety(e *EvalState) error {
+	return unaryOp(e, func(v *prim.Vec3) VReal { return VReal(v.Y) })
+}
+
+func getz(e *EvalState) error {
+	return unaryOp(e, func(v *prim.Vec3) VReal { return VReal(v.Z) })
+}
+
+func length(e *EvalState) error {
+	return unaryOp(e, func(v VArray) VInt { return VInt(len(v.Elements)) })
+}
+
+func sqrt(e *EvalState) error {
+	return unaryOp(e, func(x VReal) VReal { return VReal(math.Sqrt(float64(x))) })
 }
 
 func floor(e *EvalState) error {
@@ -794,9 +965,10 @@ func get(e *EvalState) error {
 	}
 	n := len(arr.Elements)
 	if i < 0 || int(i) >= n {
-		// We could just allow the Go bounds checking on slice access
-		// to fail but this seems more user-friendly.
-		return fmt.Errorf("%w: %d vs %d", ErrArrayIndexOutOfBounds, i, n)
+		return &EvalError{
+			EvalState: e,
+			Err:       fmt.Errorf("%w: %d vs %d", ErrArrayIndexOutOfBounds, i, n),
+		}
 	}
 	e.Push(arr.Elements[i])
 	return nil
@@ -837,6 +1009,19 @@ func translate(e *EvalState) error {
 		Y: float64(y),
 		Z: float64(z),
 	})))
+	return nil
+}
+
+func scale(e *EvalState) error {
+	x, y, z, err := Pop3[VReal](e)
+	if err != nil {
+		return err
+	}
+	s, err := PopValue[SceneObject](e)
+	if err != nil {
+		return err
+	}
+	e.Push(s.Transform(prim.Mat4Scale(float64(x), float64(y), float64(z))))
 	return nil
 }
 
@@ -890,6 +1075,15 @@ func union(e *EvalState) error {
 		return err
 	}
 	e.Push(&Union{Objects: []SceneObject{a, b}})
+	return nil
+}
+
+func difference(e *EvalState) error {
+	a, b, err := Pop2[SceneObject](e)
+	if err != nil {
+		return err
+	}
+	e.Push(&Difference{A: a, B: b})
 	return nil
 }
 

@@ -64,7 +64,6 @@ func TestSimpleEval(t *testing.T) {
 		name    string
 		program string
 		want    Value // expected top of stack
-		debug   bool
 	}
 	for _, tt := range []testCase{
 		{
@@ -118,7 +117,6 @@ func TestSimpleEval(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			st := NewEvalState()
-			st.Debug = tt.debug
 			err := st.ParseAndEval(tt.program)
 			if err != nil {
 				t.Errorf("eval error: %v", err)
@@ -153,11 +151,23 @@ func checkRenderArgsVsGolden(got *RenderArgs, st *EvalState, goldenFilePath stri
 	return
 }
 
+func TestFeatures(t *testing.T) {
+	program := MustReadTestdataFile("testdata/features.gml")
+	st := NewEvalState()
+	st.Render = func(e *EvalState, args *RenderArgs) error {
+		t.Error("unexpected call to render")
+		return nil
+	}
+	err := st.ParseAndEval(program)
+	if err != nil {
+		t.Errorf("eval error: %v", err)
+	}
+}
+
 // TestSingleRender tests programs where we expect exactly one call to render.
 func TestSingleRender(t *testing.T) {
 	type testCase struct {
-		name  string
-		debug bool // set to enable debug tracing
+		name string
 	}
 	for _, tt := range []testCase{
 		{name: "canned"},
@@ -177,7 +187,6 @@ func TestSingleRender(t *testing.T) {
 				}
 				return nil
 			}
-			st.Debug = tt.debug
 			err := st.ParseAndEval(program)
 			if err != nil {
 				t.Errorf("eval error: %v", err)
