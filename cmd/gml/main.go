@@ -79,11 +79,7 @@ func (s *State) findMatchingBreakpoint(line int) *Breakpoint {
 }
 
 func (s *State) loadFile(filepath string) error {
-	programText, err := os.ReadFile(filepath)
-	if err != nil {
-		return err
-	}
-	prog, err := s.evalState.Parse(string(programText))
+	prog, err := s.evalState.ParseFile(filepath)
 	if err == nil {
 		s.program = prog
 		s.pc = 0

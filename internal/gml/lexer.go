@@ -8,6 +8,9 @@ package gml
 
 import (
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -17,6 +20,10 @@ const (
 	TokenUnknown LexemeType = iota
 	TokenEOF
 	TokenIllegal
+	// TokenError signals a lexer/preprocessor error (e.g. a bad #include)
+	// whose Literal holds a human-readable message, as opposed to
+	// TokenIllegal, whose Literal is raw partial lexical text.
+	TokenError
 	TokenIdent
 	TokenBinder
 	TokenBoolean
@@ -33,6 +40,7 @@ var lexemeNames = [...]string{
 	TokenUnknown:  "Unknown",
 	TokenEOF:      "EOF",
 	TokenIllegal:  "Illegal",
+	TokenError:    "Error",
 	TokenIdent:    "Ident",
 	TokenBinder:   "Binder",
 	TokenBoolean:  "Boolean",
@@ -56,19 +64,66 @@ type LexerToken struct {
 	Col     int
 }
 
-type Lexer struct {
+// lexerFrame holds the position-tracking state for a single source: either
+// the raw string passed to NewLexer, or one file in a #include chain.
+type lexerFrame struct {
 	input   string
 	pos     int
 	readPos int
 	ch      byte
 	line    int
 	col     int
+	// file is the absolute path of the file that produced input, used to
+	// resolve #include directives relative to it. Empty for a raw-string
+	// frame with no file context (e.g. NewLexer input, or the REPL).
+	file string
+}
+
+type Lexer struct {
+	lexerFrame
+	// stack holds suspended parent frames while lexing an #include chain.
+	stack []lexerFrame
+	// active holds the absolute paths of files currently open (this frame
+	// plus all its ancestors), used to detect #include cycles.
+	active map[string]bool
+	// defined holds names set by #define, used to evaluate #ifndef guards.
+	defined map[string]bool
+	// condDepth counts #ifndef blocks that are currently open (condition
+	// was true) and awaiting a matching #endif.
+	condDepth int
 }
 
 func NewLexer(input string) *Lexer {
-	l := &Lexer{input: input, line: 1}
+	l := &Lexer{lexerFrame: lexerFrame{input: input, line: 1}}
 	l.readChar()
 	return l
+}
+
+// NewFileLexer creates a Lexer reading from the file at path, so that any
+// #include directives it contains resolve relative to path's directory.
+func NewFileLexer(path string) (*Lexer, error) {
+	abs, content, err := readFileAbs(path)
+	if err != nil {
+		return nil, err
+	}
+	l := &Lexer{
+		lexerFrame: lexerFrame{input: content, line: 1, file: abs},
+		active:     map[string]bool{abs: true},
+	}
+	l.readChar()
+	return l, nil
+}
+
+func readFileAbs(path string) (abs string, content string, err error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", "", err
+	}
+	abs, err = filepath.Abs(path)
+	if err != nil {
+		return "", "", err
+	}
+	return abs, string(b), nil
 }
 
 func (l *Lexer) readChar() {
@@ -78,6 +133,9 @@ func (l *Lexer) readChar() {
 	} else {
 		l.col++
 	}
+	if l.readPos >= len(l.input) && l.popFrame() {
+		return
+	}
 	if l.readPos >= len(l.input) {
 		l.ch = 0
 	} else {
@@ -85,6 +143,20 @@ func (l *Lexer) readChar() {
 	}
 	l.pos = l.readPos
 	l.readPos++
+}
+
+// popFrame restores the most recently suspended parent frame (resuming
+// right after the #include directive that pushed it) and reports whether a
+// frame was available to pop.
+func (l *Lexer) popFrame() bool {
+	if len(l.stack) == 0 {
+		return false
+	}
+	delete(l.active, l.file)
+	n := len(l.stack)
+	l.lexerFrame = l.stack[n-1]
+	l.stack = l.stack[:n-1]
+	return true
 }
 
 // newToken returns a single byte token with the current
@@ -113,6 +185,11 @@ func (l *Lexer) NextToken() LexerToken {
 			l.readChar()
 			literal := l.readIdentifier()
 			return LexerToken{Type: TokenBinder, Literal: "/" + literal, Line: line, Col: col}
+		} else if l.peekChar() == '*' {
+			if err := l.skipBlockComment(); err != nil {
+				return LexerToken{Type: TokenError, Literal: err.Error(), Line: line, Col: col}
+			}
+			return l.NextToken()
 		} else {
 			return l.newToken(TokenIllegal, line, col)
 		}
@@ -125,6 +202,11 @@ func (l *Lexer) NextToken() LexerToken {
 		return LexerToken{Type: typ, Literal: literal, Line: line, Col: col}
 	case '%':
 		l.skipComment()
+		return l.NextToken()
+	case '#':
+		if err := l.handleDirective(); err != nil {
+			return LexerToken{Type: TokenError, Literal: err.Error(), Line: line, Col: col}
+		}
 		return l.NextToken()
 	case 0:
 		return LexerToken{Type: TokenEOF, Literal: "", Line: line, Col: col}
@@ -157,6 +239,150 @@ func (l *Lexer) skipComment() {
 	for l.ch != '\n' && l.ch != 0 {
 		l.readChar()
 	}
+}
+
+func (l *Lexer) skipInlineSpace() {
+	for l.ch == ' ' || l.ch == '\t' {
+		l.readChar()
+	}
+}
+
+// skipBlockComment consumes a C-style /* ... */ comment. l.ch must be '/'
+// with a peeked '*' when called.
+func (l *Lexer) skipBlockComment() error {
+	l.readChar() // consume '/'
+	l.readChar() // consume '*'
+	for {
+		if l.ch == 0 {
+			return errors.New("unterminated block comment")
+		}
+		if l.ch == '*' && l.peekChar() == '/' {
+			l.readChar()
+			l.readChar()
+			return nil
+		}
+		l.readChar()
+	}
+}
+
+// handleDirective consumes a preprocessor directive. l.ch must be '#' when
+// called. It supports a minimal subset: #include, and the classic
+// #ifndef/#define/#endif header-guard idiom.
+func (l *Lexer) handleDirective() error {
+	l.readChar() // consume '#'
+	l.skipInlineSpace()
+	word := l.readIdentifier()
+	switch word {
+	case "include":
+		return l.handleInclude()
+	case "ifndef":
+		return l.handleIfndef()
+	case "define":
+		return l.handleDefine()
+	case "endif":
+		return l.handleEndif()
+	default:
+		return fmt.Errorf("unsupported preprocessor directive: #%s", word)
+	}
+}
+
+func (l *Lexer) handleInclude() error {
+	l.skipInlineSpace()
+	if l.ch != '"' {
+		return errors.New("expected quoted filename after #include")
+	}
+	name, err := l.readString()
+	if err != nil {
+		return fmt.Errorf("invalid #include filename: %w", err)
+	}
+	return l.pushInclude(name)
+}
+
+// pushInclude resolves name relative to the including file's directory
+// (or the current directory, for a raw-string top-level input), then
+// suspends the current frame and switches the lexer to read from it.
+func (l *Lexer) pushInclude(name string) error {
+	dir := "."
+	if l.file != "" {
+		dir = filepath.Dir(l.file)
+	}
+	path := filepath.Join(dir, name)
+	abs, content, err := readFileAbs(path)
+	if err != nil {
+		return fmt.Errorf("#include %q: %w", name, err)
+	}
+	if l.active[abs] {
+		return fmt.Errorf("#include %q: include cycle detected", name)
+	}
+	if l.active == nil {
+		l.active = make(map[string]bool)
+	}
+	l.active[abs] = true
+	l.stack = append(l.stack, l.lexerFrame)
+	l.lexerFrame = lexerFrame{input: content, line: 1, file: abs}
+	l.readChar()
+	return nil
+}
+
+func (l *Lexer) handleIfndef() error {
+	l.skipInlineSpace()
+	name := l.readIdentifier()
+	if name == "" {
+		return errors.New("expected identifier after #ifndef")
+	}
+	if l.defined[name] {
+		return l.skipConditional()
+	}
+	l.condDepth++
+	return nil
+}
+
+func (l *Lexer) handleDefine() error {
+	l.skipInlineSpace()
+	name := l.readIdentifier()
+	if name == "" {
+		return errors.New("expected identifier after #define")
+	}
+	if l.defined == nil {
+		l.defined = make(map[string]bool)
+	}
+	l.defined[name] = true
+	return nil
+}
+
+func (l *Lexer) handleEndif() error {
+	if l.condDepth == 0 {
+		return errors.New("#endif without matching #ifndef")
+	}
+	l.condDepth--
+	return nil
+}
+
+// skipConditional discards the body of an #ifndef block whose condition was
+// false, up to and including its matching #endif. It scans raw characters
+// rather than tokens (dead code need not be lexically valid GML), tracking
+// nested #ifndef/#endif directives to find the correct matching #endif.
+// Everything else, including nested #include and #define, is ignored.
+func (l *Lexer) skipConditional() error {
+	depth := 1
+	for depth > 0 {
+		if l.ch == 0 {
+			return errors.New("unterminated #ifndef: missing #endif")
+		}
+		if l.ch == '#' {
+			l.readChar()
+			l.skipInlineSpace()
+			switch l.readIdentifier() {
+			case "ifndef":
+				depth++
+			case "endif":
+				depth--
+			}
+			continue
+		}
+		l.readChar()
+	}
+	return nil
 }
 
 func (l *Lexer) readIdentifier() string {

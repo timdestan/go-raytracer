@@ -314,12 +314,35 @@ func (e *EvalState) Parse(input string) (TokenList, error) {
 	return p.Parse()
 }
 
+// ParseFile parses the file at path, resolving any #include directives it
+// contains relative to path's directory.
+func (e *EvalState) ParseFile(path string) (TokenList, error) {
+	p, err := NewParserFromFileWithIDMapping(path, &e.IDMapping)
+	if err != nil {
+		return nil, err
+	}
+	return p.Parse()
+}
+
 func (e *EvalState) ParseAndEval(input string) error {
 	program, err := e.Parse(input)
 	if err != nil {
 		return err
 	}
+	return e.evalProgram(program)
+}
 
+// ParseAndEvalFile parses and evaluates the file at path, resolving any
+// #include directives it contains relative to path's directory.
+func (e *EvalState) ParseAndEvalFile(path string) error {
+	program, err := e.ParseFile(path)
+	if err != nil {
+		return err
+	}
+	return e.evalProgram(program)
+}
+
+func (e *EvalState) evalProgram(program TokenList) error {
 	for _, token := range program {
 		if err := e.EvalOneStep(token); err != nil {
 			return err

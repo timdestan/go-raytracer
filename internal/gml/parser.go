@@ -23,11 +23,31 @@ func NewParserWithIDMapping(input string, idMapping *IDMapping) *Parser {
 	}
 }
 
+// NewParserFromFile creates a Parser reading from the file at path, so that
+// any #include directives it contains resolve relative to path's directory.
+func NewParserFromFile(path string) (*Parser, error) {
+	return NewParserFromFileWithIDMapping(path, NewIDMapping())
+}
+
+func NewParserFromFileWithIDMapping(path string, idMapping *IDMapping) (*Parser, error) {
+	lexer, err := NewFileLexer(path)
+	if err != nil {
+		return nil, err
+	}
+	return &Parser{
+		lexer:     lexer,
+		idMapping: idMapping,
+	}, nil
+}
+
 func (p *Parser) Parse() (TokenList, error) {
 	p.readAndAdvanceToken()
 	l, err := p.parseTokenList()
 	if err != nil {
 		return nil, err
+	}
+	if p.curr.Type == TokenError {
+		return nil, fmt.Errorf("%d:%d: %s", p.curr.Line, p.curr.Col, p.curr.Literal)
 	}
 	if p.curr.Type != TokenEOF {
 		return nil, fmt.Errorf("%d:%d: unexpected token: %s, expected end of input", p.curr.Line, p.curr.Col, p.curr.Type)
@@ -42,6 +62,9 @@ func (p *Parser) readAndAdvanceToken() LexerToken {
 }
 
 func (p *Parser) consume(tokenType LexemeType) error {
+	if p.curr.Type == TokenError {
+		return fmt.Errorf("%d:%d: %s", p.curr.Line, p.curr.Col, p.curr.Literal)
+	}
 	if p.curr.Type != tokenType {
 		return fmt.Errorf("%d:%d: expected %s, got %s", p.curr.Line, p.curr.Col, tokenType, p.curr.Type)
 	}

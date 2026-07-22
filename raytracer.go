@@ -573,7 +573,18 @@ func Render(scene *Scene) image.Image {
 
 func ParseAndRenderGML(programText string) (image.Image, error) {
 	state := gml.NewEvalState()
+	return renderFromEvalState(state, func() error { return state.ParseAndEval(programText) })
+}
 
+// ParseAndRenderGMLFile parses and renders the GML program at path,
+// resolving any #include directives it contains relative to path's
+// directory.
+func ParseAndRenderGMLFile(path string) (image.Image, error) {
+	state := gml.NewEvalState()
+	return renderFromEvalState(state, func() error { return state.ParseAndEvalFile(path) })
+}
+
+func renderFromEvalState(state *gml.EvalState, run func() error) (image.Image, error) {
 	images := make(map[string]image.Image)
 
 	state.Render = func(state *gml.EvalState, args *gml.RenderArgs) error {
@@ -586,8 +597,7 @@ func ParseAndRenderGML(programText string) (image.Image, error) {
 		return nil
 	}
 
-	err := state.ParseAndEval(programText)
-	if err != nil {
+	if err := run(); err != nil {
 		return nil, err
 	}
 	if len(images) > 1 {

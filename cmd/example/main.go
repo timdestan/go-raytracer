@@ -28,11 +28,7 @@ func writeImage(img image.Image, filename string) error {
 }
 
 func renderFromGMLFile(filename string) (image.Image, error) {
-	prog, err := os.ReadFile(filename)
-	if err != nil {
-		return nil, err
-	}
-	return rt.ParseAndRenderGML(string(prog))
+	return rt.ParseAndRenderGMLFile(filename)
 }
 
 func main() {
