@@ -92,38 +92,45 @@ func TestRenderCube(t *testing.T) {
 	compareImages(t, got, "testdata/goldens/example_cube.png")
 }
 
-// TestRenderCylinder renders the "front view" of the original contest
-// fixture testdata/cylinder.gml, which shows a cylinder's lateral surface
-// textured based on face/u/v, plus its two end caps in solid colors. The
-// fixture calls render four times (one per rotated view); only the first
-// ("cylinder0.ppm", the untransformed front view) is captured here, since
-// the other three views are affected by a pre-existing quirk in how
-// transforms compose for rotated objects and don't currently show anything.
+// TestRenderCylinder renders all four views produced by the original
+// contest fixture testdata/cylinder.gml: the front view (lateral surface,
+// textured based on face/u/v), the bottom and top caps (solid colors), and
+// the back view (lateral surface again, from the opposite side).
 //
 // The fixture uses #include, so it's loaded from disk (via
 // ParseAndEvalFile) rather than through the embedded testdata FS, so that
 // relative includes resolve correctly.
 func TestRenderCylinder(t *testing.T) {
+	views := map[string]image.Image{}
 	state := gml.NewEvalState()
-	var got image.Image
 	state.Render = func(state *gml.EvalState, args *gml.RenderArgs) error {
-		if args.File != "cylinder0.ppm" {
-			return nil
-		}
 		scene, err := ConvertRenderArgsToScene(args, state)
 		if err != nil {
 			return err
 		}
-		got = Render(scene)
+		views[args.File] = Render(scene)
 		return nil
 	}
 	if err := state.ParseAndEvalFile("internal/gml/testdata/cylinder.gml"); err != nil {
 		t.Fatalf("ParseAndEvalFile: %v", err)
 	}
-	if got == nil {
-		t.Fatal("cylinder0.ppm was never rendered")
+
+	for _, tt := range []struct {
+		file, golden string
+	}{
+		{"cylinder0.ppm", "testdata/goldens/example_cylinder_front.png"},
+		{"cylinder1.ppm", "testdata/goldens/example_cylinder_bottom.png"},
+		{"cylinder2.ppm", "testdata/goldens/example_cylinder_top.png"},
+		{"cylinder3.ppm", "testdata/goldens/example_cylinder_back.png"},
+	} {
+		t.Run(tt.file, func(t *testing.T) {
+			got, ok := views[tt.file]
+			if !ok {
+				t.Fatalf("%s was never rendered", tt.file)
+			}
+			compareImages(t, got, tt.golden)
+		})
 	}
-	compareImages(t, got, "testdata/goldens/example_cylinder.png")
 }
 
 // Run benchmarks with:
