@@ -259,6 +259,116 @@ func (c *Cube) ComputeSurfaceProps(hit Hit) (HitEx, error) {
 	}, nil
 }
 
+// Cylinder faces, matching the face indices passed to GML surface functions.
+const (
+	CylinderSide   = 0
+	CylinderTop    = 1
+	CylinderBottom = 2
+)
+
+// Cylinder is a unit cylinder: x^2 + z^2 <= 1, 0 <= y <= 1, with the axis of
+// the cylinder along the Y-axis.
+type Cylinder struct {
+	SurfaceFn     gml.VSurfaceFn
+	EvalState     *gml.EvalState
+	ObjectToWorld prim.Mat4
+	WorldToObject prim.Mat4
+	NormalMat     prim.Mat4
+}
+
+func (c *Cylinder) Intersect(ray Ray) *Hit {
+	ray = rayToObjectSpace(ray, &c.WorldToObject)
+
+	bestT := math.Inf(1)
+	bestFace := -1
+	var bestPoint prim.Vec3
+
+	consider := func(t float64, face int, point prim.Vec3) {
+		if t > 0.0 && t < bestT {
+			bestT = t
+			bestFace = face
+			bestPoint = point
+		}
+	}
+
+	// Lateral surface: x^2 + z^2 = 1, solved as a quadratic in t (see
+	// Sphere.Intersect for the derivation; the same reasoning about
+	// non-unit ray directions applies here).
+	a := ray.Direction.X*ray.Direction.X + ray.Direction.Z*ray.Direction.Z
+	if a > 1e-12 {
+		halfB := ray.Origin.X*ray.Direction.X + ray.Origin.Z*ray.Direction.Z
+		c0 := ray.Origin.X*ray.Origin.X + ray.Origin.Z*ray.Origin.Z - 1.0
+		discriminant := halfB*halfB - a*c0
+		if discriminant >= 0.0 {
+			sqrtD := math.Sqrt(discriminant)
+			for _, t := range [2]float64{(-halfB - sqrtD) / a, (-halfB + sqrtD) / a} {
+				point := ray.Origin.Add(ray.Direction.Scale(t))
+				if point.Y >= 0.0 && point.Y <= 1.0 {
+					consider(t, CylinderSide, point)
+				}
+			}
+		}
+	}
+
+	// Caps: disks of radius 1 at y=0 and y=1.
+	if math.Abs(ray.Direction.Y) > 1e-12 {
+		tTop := (1.0 - ray.Origin.Y) / ray.Direction.Y
+		pTop := ray.Origin.Add(ray.Direction.Scale(tTop))
+		if pTop.X*pTop.X+pTop.Z*pTop.Z <= 1.0 {
+			consider(tTop, CylinderTop, pTop)
+		}
+
+		tBottom := -ray.Origin.Y / ray.Direction.Y
+		pBottom := ray.Origin.Add(ray.Direction.Scale(tBottom))
+		if pBottom.X*pBottom.X+pBottom.Z*pBottom.Z <= 1.0 {
+			consider(tBottom, CylinderBottom, pBottom)
+		}
+	}
+
+	if bestFace == -1 {
+		return nil
+	}
+	return &Hit{
+		Object:   c,
+		T:        bestT,
+		PointObj: bestPoint,
+		Face:     bestFace,
+	}
+}
+
+func (c *Cylinder) ComputeSurfaceProps(hit Hit) (HitEx, error) {
+	var normalObj prim.Vec3
+	var u, v float64
+	switch hit.Face {
+	case CylinderSide:
+		normalObj = prim.Vec3{X: hit.PointObj.X, Z: hit.PointObj.Z}
+		u = (math.Atan2(hit.PointObj.X, hit.PointObj.Z) + math.Pi) / (2.0 * math.Pi)
+		v = hit.PointObj.Y
+	case CylinderTop:
+		normalObj = prim.Vec3{Y: 1}
+		u = hit.PointObj.X
+		v = hit.PointObj.Z
+	case CylinderBottom:
+		normalObj = prim.Vec3{Y: -1}
+		u = hit.PointObj.X
+		v = hit.PointObj.Z
+	default:
+		return HitEx{}, fmt.Errorf("invalid cylinder face: %d", hit.Face)
+	}
+
+	material, err := gml.EvalSurfaceFn(hit.Face, u, v, c.EvalState, &c.SurfaceFn)
+	if err != nil {
+		return HitEx{}, err
+	}
+
+	return HitEx{
+		Hit:         hit,
+		PointWorld:  c.ObjectToWorld.MulPoint(hit.PointObj),
+		NormalWorld: c.NormalMat.MulDir(normalObj).Normalize(),
+		Material:    material,
+	}, nil
+}
+
 func computeLighting(hit *HitEx, scene *Scene, objects []SceneObject, ray Ray) prim.Vec3 {
 	V := ray.Direction.Neg() // view vector = opposite of ray
 
@@ -693,6 +803,16 @@ func convertGMLSceneObjects(sceneObjects []gml.SceneObject, evalState *gml.EvalS
 			}
 
 			results = append(results, cube)
+		case *gml.Cylinder:
+			objectToWorld, worldToObject := createMatrices(typedObject.TransformMat)
+
+			results = append(results, &Cylinder{
+				SurfaceFn:     typedObject.SurfaceFn,
+				EvalState:     evalState,
+				ObjectToWorld: objectToWorld,
+				WorldToObject: worldToObject,
+				NormalMat:     *worldToObject.Transpose(),
+			})
 		case *gml.Plane:
 			objectToWorld, worldToObject := createMatrices(typedObject.TransformMat)
 
